@@ -300,11 +300,27 @@ export function ChatPanel({
         onUpdateLastMessage({ content })
       }
     } finally {
+      // Auto-commit and push any remaining changes
+      if (branch.sandboxId && settings.githubPat) {
+        try {
+          await fetch("/api/sandbox/git", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              daytonaApiKey: settings.daytonaApiKey,
+              sandboxId: branch.sandboxId,
+              repoPath: `/home/daytona/${repoName}`,
+              action: "auto-commit-push",
+              githubPat: settings.githubPat,
+            }),
+          })
+        } catch {}
+      }
       onUpdateBranch({ status: "idle", lastActivity: "now" })
       abortControllerRef.current = null
       onForceSave()
     }
-  }, [input, branch, settings, onAddMessage, onUpdateLastMessage, onUpdateBranch, onForceSave])
+  }, [input, branch, settings, repoName, onAddMessage, onUpdateLastMessage, onUpdateBranch, onForceSave])
 
   function handleStop() {
     abortControllerRef.current?.abort()

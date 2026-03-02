@@ -39,6 +39,29 @@ export async function POST(req: Request) {
         return Response.json({ commits })
       }
 
+      case "auto-commit-push": {
+        if (!githubPat) {
+          return Response.json({ error: "GitHub PAT required for push" }, { status: 400 })
+        }
+        // Check for uncommitted changes
+        const statusResult = await sandbox.process.executeCommand(
+          `cd ${repoPath} && git status --porcelain 2>&1`
+        )
+        if (statusResult.exitCode || !statusResult.result.trim()) {
+          return Response.json({ committed: false, pushed: false })
+        }
+        // Commit all changes
+        const commitResult = await sandbox.process.executeCommand(
+          `cd ${repoPath} && git add -A && git commit -m "Auto-commit: agent changes" 2>&1`
+        )
+        if (commitResult.exitCode) {
+          return Response.json({ error: "Commit failed: " + commitResult.result }, { status: 500 })
+        }
+        // Push via Daytona SDK (PAT never enters sandbox)
+        await sandbox.git.push(repoPath, "x-access-token", githubPat)
+        return Response.json({ committed: true, pushed: true })
+      }
+
       case "push": {
         if (!githubPat) {
           return Response.json({ error: "GitHub PAT required for push" }, { status: 400 })
