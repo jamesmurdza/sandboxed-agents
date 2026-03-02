@@ -317,7 +317,6 @@ export function BranchList({
                     <StatusDot branch={branch} isActive={isActive} />
                     <div className="flex min-w-0 flex-1 flex-col gap-0.5">
                       <div className="flex items-center gap-2">
-                        <GitBranch className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
                         <span className={cn(
                           "truncate text-sm",
                           isBold ? "font-semibold text-foreground" : "font-medium"
@@ -325,12 +324,9 @@ export function BranchList({
                           {branch.name}
                         </span>
                       </div>
-                      <div className="flex items-center gap-2 pl-5.5">
+                      <div className="flex items-center gap-2">
                         <span className="text-[11px] text-muted-foreground">
                           {branch.status === "creating" ? "Setting up..." : agentLabels[branch.agent]}
-                        </span>
-                        <span className="ml-auto text-[10px] text-muted-foreground/60">
-                          {branch.lastActivity}
                         </span>
                       </div>
                     </div>
