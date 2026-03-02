@@ -74,22 +74,14 @@ export function RepoSidebar({
                         : "hover:bg-accent hover:text-foreground"
                     )}
                   >
-                    {repo.avatar ? (
-                      <img
-                        src={repo.avatar}
-                        alt={repo.owner}
-                        className="h-full w-full rounded-lg object-cover"
-                      />
-                    ) : (
-                      <span className={cn(
-                        "flex h-full w-full items-center justify-center rounded-lg",
-                        isActive
-                          ? "bg-accent text-foreground"
-                          : "bg-secondary text-muted-foreground"
-                      )}>
-                        {initials}
-                      </span>
-                    )}
+                    <span className={cn(
+                      "flex h-full w-full items-center justify-center rounded-lg",
+                      isActive
+                        ? "bg-accent text-foreground"
+                        : "bg-secondary text-muted-foreground"
+                    )}>
+                      {initials}
+                    </span>
                     {hasRunning && (
                       <span className="absolute -right-0.5 -top-0.5 h-2.5 w-2.5 rounded-full border-2 border-sidebar bg-primary" />
                     )}
