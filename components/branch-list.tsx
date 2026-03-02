@@ -336,9 +336,9 @@ export function BranchList({
                       e.stopPropagation()
                       setDeleteModalBranchId(branch.id)
                     }}
-                    className="absolute right-2 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 flex h-6 w-6 cursor-pointer items-center justify-center rounded text-muted-foreground/60 transition-all hover:bg-destructive/20 hover:text-red-400"
+                    className="absolute right-2 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 flex h-6 w-6 cursor-pointer items-center justify-center rounded text-muted-foreground/60 transition-all hover:bg-accent hover:text-foreground"
                   >
-                    <X className="h-3 w-3" />
+                    <X className="h-4 w-4" />
                   </button>
                 </div>
               )
