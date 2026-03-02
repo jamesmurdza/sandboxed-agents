@@ -1,0 +1,64 @@
+// Python coding agent script that runs inside the Daytona sandbox.
+// This is uploaded to the sandbox and executed via the code interpreter.
+// Note: \\n in the template literal becomes \n in the output string,
+// which Python interprets as a newline character in string literals.
+
+export const CODING_AGENT_SCRIPT = `import os
+import logging
+import sys
+import asyncio
+
+from claude_agent_sdk import ClaudeSDKClient, ClaudeAgentOptions, AssistantMessage, TextBlock, ToolUseBlock
+
+logging.getLogger('claude_agent_sdk').setLevel(logging.WARNING)
+
+def run_sync(coro):
+    loop = asyncio.get_event_loop()
+    return loop.run_until_complete(coro)
+
+loop = asyncio.new_event_loop()
+asyncio.set_event_loop(loop)
+
+repo_path = os.environ.get('REPO_PATH', '/home/daytona')
+os.chdir(repo_path)
+
+system_prompt = """You are an AI coding agent running in a Daytona sandbox.
+The repository is cloned at {path}.
+You are working on the git branch that is currently checked out.
+Use this directory for all file operations.
+Always check the current state of files before editing them.
+When you finish a task, provide a clear summary of what you did.
+""".format(path=repo_path)
+
+client = ClaudeSDKClient(
+  options=ClaudeAgentOptions(
+    allowed_tools=["Read", "Edit", "Write", "Glob", "Grep", "Bash"],
+    permission_mode="acceptEdits",
+    system_prompt=system_prompt
+  )
+)
+
+async def init_client():
+    await client.__aenter__()
+    print("Agent SDK is ready.")
+
+run_sync(init_client())
+
+async def run_query(prompt):
+    await client.query(prompt)
+    async for message in client.receive_response():
+        if isinstance(message, AssistantMessage):
+            for block in message.content:
+                if isinstance(block, TextBlock):
+                    text = block.text
+                    if not text.endswith("\\n"):
+                        text = text + "\\n"
+                    sys.stdout.write(text)
+                    sys.stdout.flush()
+                elif isinstance(block, ToolUseBlock):
+                    sys.stdout.write("TOOL_USE:" + block.name + "\\n")
+                    sys.stdout.flush()
+
+def run_query_sync(prompt):
+    return run_sync(run_query(prompt))
+`

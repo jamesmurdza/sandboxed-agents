@@ -2,44 +2,41 @@
 
 import { cn } from "@/lib/utils"
 import { X, Key, Github, Terminal } from "lucide-react"
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { Input } from "@/components/ui/input"
-
-const agents = [
-  { id: "claude-code", label: "Claude Code", icon: Terminal },
-  { id: "codex", label: "Codex", icon: Terminal },
-  { id: "opencode", label: "OpenCode", icon: Terminal },
-  { id: "default", label: "Default", icon: Key },
-] as const
-
-const apiKeyFields: Record<string, { label: string; placeholder: string }[]> = {
-  default: [
-    { label: "Anthropic API Key", placeholder: "sk-ant-..." },
-    { label: "OpenAI API Key", placeholder: "sk-..." },
-    { label: "OpenCode API Key", placeholder: "oc-..." },
-  ],
-  "claude-code": [
-    { label: "Anthropic API Key", placeholder: "sk-ant-..." },
-  ],
-  codex: [
-    { label: "OpenAI API Key", placeholder: "sk-..." },
-  ],
-  opencode: [
-    { label: "OpenCode API Key", placeholder: "oc-..." },
-  ],
-}
+import type { Settings } from "@/lib/types"
 
 interface SettingsModalProps {
   open: boolean
   onClose: () => void
+  settings: Settings
+  onSave: (settings: Settings) => void
 }
 
-export function SettingsModal({ open, onClose }: SettingsModalProps) {
-  const [activeAgent, setActiveAgent] = useState("claude-code")
+export function SettingsModal({ open, onClose, settings, onSave }: SettingsModalProps) {
+  const [githubPat, setGithubPat] = useState("")
+  const [anthropicApiKey, setAnthropicApiKey] = useState("")
+  const [daytonaApiKey, setDaytonaApiKey] = useState("")
+
+  // Sync form state when modal opens
+  useEffect(() => {
+    if (open) {
+      setGithubPat(settings.githubPat)
+      setAnthropicApiKey(settings.anthropicApiKey)
+      setDaytonaApiKey(settings.daytonaApiKey)
+    }
+  }, [open, settings])
 
   if (!open) return null
 
-  const fields = apiKeyFields[activeAgent] ?? []
+  function handleSave() {
+    onSave({
+      githubPat: githubPat.trim(),
+      anthropicApiKey: anthropicApiKey.trim(),
+      daytonaApiKey: daytonaApiKey.trim(),
+    })
+    onClose()
+  }
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center">
@@ -65,49 +62,60 @@ export function SettingsModal({ open, onClose }: SettingsModalProps) {
           <Input
             type="password"
             placeholder="ghp_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+            value={githubPat}
+            onChange={(e) => setGithubPat(e.target.value)}
             className="h-9 bg-secondary border-border text-xs font-mono placeholder:text-muted-foreground/40"
           />
-          <p className="mt-1.5 text-[11px] text-muted-foreground">Required for creating branches and pull requests</p>
+          <p className="mt-1.5 text-[11px] text-muted-foreground">
+            Required for cloning repos, creating branches, and pushing code.
+            Needs <code className="text-[10px]">repo</code> scope.
+          </p>
         </div>
 
-        {/* Agent API Keys */}
-        <div className="flex h-[220px] min-h-0">
-          {/* Agent nav */}
-          <div className="flex w-[140px] shrink-0 flex-col border-r border-border bg-background py-2">
-            {agents.map((agent) => (
-              <button
-                key={agent.id}
-                onClick={() => setActiveAgent(agent.id)}
-                className={cn(
-                  "flex cursor-pointer items-center gap-2 px-4 py-2 text-xs transition-colors text-left",
-                  activeAgent === agent.id
-                    ? "bg-accent text-foreground font-medium"
-                    : "text-muted-foreground hover:bg-accent/50 hover:text-foreground"
-                )}
-              >
-                <agent.icon className="h-3.5 w-3.5 shrink-0" />
-                <span className="truncate">{agent.label}</span>
-              </button>
-            ))}
+        {/* API Keys */}
+        <div className="flex flex-col gap-4 px-5 py-4">
+          {/* Anthropic API Key */}
+          <div className="flex flex-col gap-1.5">
+            <div className="flex items-center gap-2">
+              <Terminal className="h-3.5 w-3.5 text-muted-foreground" />
+              <label className="text-xs font-medium text-foreground">Anthropic API Key</label>
+            </div>
+            <Input
+              type="password"
+              placeholder="sk-ant-..."
+              value={anthropicApiKey}
+              onChange={(e) => setAnthropicApiKey(e.target.value)}
+              className="h-9 bg-secondary border-border text-xs font-mono placeholder:text-muted-foreground/40"
+            />
+            <p className="text-[11px] text-muted-foreground">
+              Used by Claude Code agent inside sandboxes
+            </p>
           </div>
 
-          {/* Key fields */}
-          <div className="flex flex-1 flex-col gap-4 p-5">
+          {/* Daytona API Key */}
+          <div className="flex flex-col gap-1.5">
+            <div className="flex items-center gap-2">
+              <Key className="h-3.5 w-3.5 text-muted-foreground" />
+              <label className="text-xs font-medium text-foreground">Daytona API Key</label>
+            </div>
+            <Input
+              type="password"
+              placeholder="dtn_..."
+              value={daytonaApiKey}
+              onChange={(e) => setDaytonaApiKey(e.target.value)}
+              className="h-9 bg-secondary border-border text-xs font-mono placeholder:text-muted-foreground/40"
+            />
             <p className="text-[11px] text-muted-foreground">
-              {activeAgent === "default"
-                ? "API keys configured here are used as fallback for all agents."
-                : `API key for ${agents.find((a) => a.id === activeAgent)?.label}. Overrides the default key.`}
+              Used for creating cloud sandboxes.{" "}
+              <a
+                href="https://app.daytona.io/dashboard/keys"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="underline hover:text-foreground"
+              >
+                Get a key
+              </a>
             </p>
-            {fields.map((field) => (
-              <div key={field.label} className="flex flex-col gap-1.5">
-                <label className="text-xs font-medium text-foreground">{field.label}</label>
-                <Input
-                  type="password"
-                  placeholder={field.placeholder}
-                  className="h-9 bg-secondary border-border text-xs font-mono placeholder:text-muted-foreground/40"
-                />
-              </div>
-            ))}
           </div>
         </div>
 
@@ -120,7 +128,7 @@ export function SettingsModal({ open, onClose }: SettingsModalProps) {
             Cancel
           </button>
           <button
-            onClick={onClose}
+            onClick={handleSave}
             className="cursor-pointer rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground transition-colors hover:bg-primary/90"
           >
             Save

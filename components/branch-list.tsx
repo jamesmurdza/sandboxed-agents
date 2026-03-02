@@ -1,25 +1,38 @@
 "use client"
 
 import { cn } from "@/lib/utils"
-import type { Repo, Branch } from "@/lib/mock-data"
-import { agentLabels } from "@/lib/mock-data"
-import { GitBranch, Plus, Search, ChevronDown, Loader2 } from "lucide-react"
+import type { Repo, Branch, Settings } from "@/lib/types"
+import { agentLabels } from "@/lib/types"
+import { generateId } from "@/lib/store"
+import { GitBranch, Plus, Search, ChevronDown, Loader2, X, Trash2 } from "lucide-react"
 import { Input } from "@/components/ui/input"
-import { useState, useRef, useEffect } from "react"
+import { useState, useRef, useEffect, useCallback } from "react"
 
 interface BranchListProps {
   repo: Repo
   activeBranchId: string | null
   onSelectBranch: (branchId: string) => void
+  onAddBranch: (branch: Branch) => void
+  onRemoveBranch: (branchId: string) => void
+  onUpdateBranch: (branchId: string, updates: Partial<Branch>) => void
+  settings: Settings
   width: number
   onWidthChange: (w: number) => void
 }
 
 function StatusDot({ branch, isActive }: { branch: Branch; isActive: boolean }) {
-  if (branch.status === "running") {
+  if (branch.status === "running" || branch.status === "creating") {
     return (
       <span className="flex h-4 w-4 shrink-0 items-center justify-center">
         <Loader2 className="h-4 w-4 animate-spin text-primary" />
+      </span>
+    )
+  }
+
+  if (branch.status === "error") {
+    return (
+      <span className="flex h-4 w-4 shrink-0 items-center justify-center">
+        <span className="h-2 w-2 rounded-full bg-red-400" />
       </span>
     )
   }
@@ -35,11 +48,27 @@ function StatusDot({ branch, isActive }: { branch: Branch; isActive: boolean }) 
   return <span className="h-4 w-4 shrink-0" />
 }
 
-export function BranchList({ repo, activeBranchId, onSelectBranch, width, onWidthChange }: BranchListProps) {
+export function BranchList({
+  repo,
+  activeBranchId,
+  onSelectBranch,
+  onAddBranch,
+  onRemoveBranch,
+  onUpdateBranch,
+  settings,
+  width,
+  onWidthChange,
+}: BranchListProps) {
   const [search, setSearch] = useState("")
   const [branchFromOpen, setBranchFromOpen] = useState(false)
+  const [newBranchOpen, setNewBranchOpen] = useState(false)
+  const [newBranchName, setNewBranchName] = useState("")
+  const [newBranchBase, setNewBranchBase] = useState(repo.defaultBranch || "main")
+  const [creating, setCreating] = useState(false)
+  const [createError, setCreateError] = useState<string | null>(null)
   const isResizing = useRef(false)
   const dropdownRef = useRef<HTMLDivElement>(null)
+  const newBranchInputRef = useRef<HTMLInputElement>(null)
 
   const filtered = repo.branches.filter((b) =>
     b.name.toLowerCase().includes(search.toLowerCase())
@@ -78,11 +107,101 @@ export function BranchList({ repo, activeBranchId, onSelectBranch, width, onWidt
     return () => document.removeEventListener("mousedown", handleClickOutside)
   }, [])
 
+  useEffect(() => {
+    if (newBranchOpen && newBranchInputRef.current) {
+      newBranchInputRef.current.focus()
+    }
+  }, [newBranchOpen])
+
   function startResize() {
     isResizing.current = true
     document.body.style.cursor = "col-resize"
     document.body.style.userSelect = "none"
   }
+
+  const handleCreateBranch = useCallback(async () => {
+    const branchName = newBranchName.trim()
+    if (!branchName || creating) return
+
+    if (!settings.daytonaApiKey || !settings.anthropicApiKey || !settings.githubPat) {
+      setCreateError("Please configure API keys in Settings first")
+      return
+    }
+
+    setCreating(true)
+    setCreateError(null)
+
+    const branchId = generateId()
+    const branch: Branch = {
+      id: branchId,
+      name: branchName,
+      agent: "claude-code",
+      messages: [],
+      status: "creating",
+      lastActivity: "now",
+      baseBranch: newBranchBase,
+    }
+
+    onAddBranch(branch)
+    setNewBranchOpen(false)
+    setNewBranchName("")
+
+    try {
+      const res = await fetch("/api/sandbox/create", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          daytonaApiKey: settings.daytonaApiKey,
+          anthropicApiKey: settings.anthropicApiKey,
+          githubPat: settings.githubPat,
+          repoOwner: repo.owner,
+          repoName: repo.name,
+          baseBranch: newBranchBase,
+          newBranch: branchName,
+        }),
+      })
+
+      const reader = res.body!.getReader()
+      const decoder = new TextDecoder()
+      let buffer = ""
+
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+
+        buffer += decoder.decode(value, { stream: true })
+        const parts = buffer.split("\n\n")
+        buffer = parts.pop()!
+
+        for (const part of parts) {
+          for (const line of part.split("\n")) {
+            if (!line.startsWith("data: ")) continue
+            try {
+              const data = JSON.parse(line.slice(6))
+              if (data.type === "done") {
+                onUpdateBranch(branchId, {
+                  status: "idle",
+                  sandboxId: data.sandboxId,
+                  contextId: data.contextId,
+                })
+              } else if (data.type === "error") {
+                onUpdateBranch(branchId, {
+                  status: "error",
+                })
+                setCreateError(data.message)
+              }
+            } catch {}
+          }
+        }
+      }
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : "Failed to create branch"
+      onUpdateBranch(branchId, { status: "error" })
+      setCreateError(message)
+    } finally {
+      setCreating(false)
+    }
+  }, [newBranchName, newBranchBase, creating, settings, repo, onAddBranch, onUpdateBranch])
 
   return (
     <div className="relative flex h-full shrink-0 flex-col border-r border-border bg-card" style={{ width }}>
@@ -108,91 +227,134 @@ export function BranchList({ repo, activeBranchId, onSelectBranch, width, onWidt
       </div>
 
       <div className="flex-1 overflow-y-auto px-2 pb-2">
-        <div className="flex flex-col gap-0.5">
-          {filtered.map((branch) => {
-            const isActive = branch.id === activeBranchId
-            const isBold = branch.status === "running" || (branch.unread && !isActive)
-            return (
-              <button
-                key={branch.id}
-                onClick={() => onSelectBranch(branch.id)}
-                className={cn(
-                  "flex cursor-pointer items-center gap-2.5 rounded-md px-3 py-2.5 text-left transition-colors",
-                  isActive
-                    ? "bg-accent text-foreground"
-                    : "text-muted-foreground hover:bg-accent/50 hover:text-foreground"
-                )}
-              >
-                <StatusDot branch={branch} isActive={isActive} />
-                <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-                  <div className="flex items-center gap-2">
-                    <GitBranch className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                    <span className={cn(
-                      "truncate text-sm",
-                      isBold ? "font-semibold text-foreground" : "font-medium"
-                    )}>
-                      {branch.name}
-                    </span>
-                  </div>
-                  <div className="flex items-center gap-2 pl-5.5">
-                    <span className="text-[11px] text-muted-foreground">
-                      {agentLabels[branch.agent]}
-                    </span>
-                    <span className="ml-auto text-[10px] text-muted-foreground/60">
-                      {branch.lastActivity}
-                    </span>
-                  </div>
-                </div>
-              </button>
-            )
-          })}
-        </div>
-      </div>
-
-      <div className="border-t border-border p-3">
-        <div className="flex items-center gap-0.5">
-          <button className="flex min-w-0 flex-1 cursor-pointer items-center gap-1.5 rounded-md rounded-r-none bg-secondary px-3 py-2 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground overflow-hidden">
-            <Plus className="h-3.5 w-3.5 shrink-0" />
-            <span className="truncate">
-              {activeBranch ? <>New from <span className="font-mono text-foreground/70">{activeBranch.name}</span></> : "New branch"}
-            </span>
-          </button>
-          <div className="relative" ref={dropdownRef}>
-            <button
-              onClick={() => setBranchFromOpen(!branchFromOpen)}
-              className="flex cursor-pointer h-full items-center justify-center rounded-md rounded-l-none bg-secondary px-1.5 py-2 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground border-l border-border"
-            >
-              <ChevronDown className="h-3.5 w-3.5" />
-            </button>
-            {branchFromOpen && (
-              <div className="absolute bottom-full right-0 mb-1 z-50 flex flex-col rounded-lg border border-border bg-popover py-1 shadow-lg min-w-[160px]">
-                <div className="px-3 py-1.5 text-[10px] uppercase tracking-wider text-muted-foreground/60">Branch from</div>
-                {repo.branches.map((b) => (
+        {filtered.length === 0 && repo.branches.length === 0 ? (
+          <div className="flex flex-col items-center justify-center gap-2 py-8 text-muted-foreground">
+            <GitBranch className="h-5 w-5" />
+            <p className="text-xs text-center">Create a new branch to start working with an agent</p>
+          </div>
+        ) : (
+          <div className="flex flex-col gap-0.5">
+            {filtered.map((branch) => {
+              const isActive = branch.id === activeBranchId
+              const isBold = branch.status === "running" || branch.status === "creating" || (branch.unread && !isActive)
+              return (
+                <div key={branch.id} className="group relative">
                   <button
-                    key={b.id}
-                    onClick={() => setBranchFromOpen(false)}
+                    onClick={() => onSelectBranch(branch.id)}
                     className={cn(
-                      "flex cursor-pointer items-center gap-2 px-3 py-1.5 text-xs transition-colors hover:bg-accent text-left",
-                      b.id === activeBranchId ? "text-primary" : "text-foreground"
+                      "flex w-full cursor-pointer items-center gap-2.5 rounded-md px-3 py-2.5 text-left transition-colors",
+                      isActive
+                        ? "bg-accent text-foreground"
+                        : "text-muted-foreground hover:bg-accent/50 hover:text-foreground"
                     )}
                   >
-                    <GitBranch className="h-3 w-3 shrink-0 text-muted-foreground" />
-                    <span className="truncate font-mono">{b.name}</span>
+                    <StatusDot branch={branch} isActive={isActive} />
+                    <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+                      <div className="flex items-center gap-2">
+                        <GitBranch className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                        <span className={cn(
+                          "truncate text-sm",
+                          isBold ? "font-semibold text-foreground" : "font-medium"
+                        )}>
+                          {branch.name}
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-2 pl-5.5">
+                        <span className="text-[11px] text-muted-foreground">
+                          {branch.status === "creating" ? "Setting up..." : agentLabels[branch.agent]}
+                        </span>
+                        <span className="ml-auto text-[10px] text-muted-foreground/60">
+                          {branch.lastActivity}
+                        </span>
+                      </div>
+                    </div>
                   </button>
+                  {/* Delete button on hover */}
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      onRemoveBranch(branch.id)
+                    }}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 flex h-6 w-6 cursor-pointer items-center justify-center rounded text-muted-foreground/60 transition-all hover:bg-destructive/20 hover:text-red-400"
+                  >
+                    <Trash2 className="h-3 w-3" />
+                  </button>
+                </div>
+              )
+            })}
+          </div>
+        )}
+      </div>
+
+      {/* New Branch Section */}
+      {newBranchOpen ? (
+        <div className="border-t border-border p-3">
+          <div className="flex flex-col gap-2">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-medium text-foreground">New branch</span>
+              <button
+                onClick={() => {
+                  setNewBranchOpen(false)
+                  setCreateError(null)
+                }}
+                className="flex h-5 w-5 cursor-pointer items-center justify-center rounded text-muted-foreground hover:text-foreground"
+              >
+                <X className="h-3 w-3" />
+              </button>
+            </div>
+            <Input
+              ref={newBranchInputRef}
+              placeholder="branch-name"
+              value={newBranchName}
+              onChange={(e) => setNewBranchName(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") handleCreateBranch()
+                if (e.key === "Escape") {
+                  setNewBranchOpen(false)
+                  setCreateError(null)
+                }
+              }}
+              className="h-8 bg-secondary border-border text-xs font-mono placeholder:text-muted-foreground/40"
+              disabled={creating}
+            />
+            <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+              <span>from</span>
+              <select
+                value={newBranchBase}
+                onChange={(e) => setNewBranchBase(e.target.value)}
+                className="bg-secondary rounded px-1.5 py-0.5 text-[11px] text-foreground border border-border"
+                disabled={creating}
+              >
+                <option value={repo.defaultBranch || "main"}>{repo.defaultBranch || "main"}</option>
+                {repo.branches.map((b) => (
+                  <option key={b.id} value={b.name}>{b.name}</option>
                 ))}
-                <div className="mx-2 my-1 h-px bg-border" />
-                <button
-                  onClick={() => setBranchFromOpen(false)}
-                  className="flex cursor-pointer items-center gap-2 px-3 py-1.5 text-xs transition-colors hover:bg-accent text-left text-foreground"
-                >
-                  <GitBranch className="h-3 w-3 shrink-0 text-muted-foreground" />
-                  <span className="truncate font-mono">main</span>
-                </button>
-              </div>
+              </select>
+            </div>
+            {createError && (
+              <p className="text-[11px] text-red-400">{createError}</p>
             )}
+            <button
+              onClick={handleCreateBranch}
+              disabled={creating || !newBranchName.trim()}
+              className="flex cursor-pointer items-center justify-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-50"
+            >
+              {creating && <Loader2 className="h-3 w-3 animate-spin" />}
+              Create branch
+            </button>
           </div>
         </div>
-      </div>
+      ) : (
+        <div className="border-t border-border p-3">
+          <button
+            onClick={() => setNewBranchOpen(true)}
+            className="flex w-full cursor-pointer items-center gap-1.5 rounded-md bg-secondary px-3 py-2 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+          >
+            <Plus className="h-3.5 w-3.5 shrink-0" />
+            <span className="truncate">New branch</span>
+          </button>
+        </div>
+      )}
 
       {/* Resize handle */}
       <div

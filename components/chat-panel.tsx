@@ -1,8 +1,9 @@
 "use client"
 
 import { cn } from "@/lib/utils"
-import type { Branch, Message, ToolCall, Agent } from "@/lib/mock-data"
-import { agentLabels } from "@/lib/mock-data"
+import type { Branch, Message, ToolCall, Settings } from "@/lib/types"
+import { agentLabels } from "@/lib/types"
+import { generateId } from "@/lib/store"
 import {
   FileText,
   Pencil,
@@ -10,7 +11,6 @@ import {
   Search,
   Terminal,
   GitPullRequest,
-  ExternalLink,
   ChevronDown,
   Send,
   ArrowRight,
@@ -22,8 +22,11 @@ import {
   RotateCcw,
   History,
   Diff,
+  FolderSearch,
+  Regex,
+  AlertCircle,
 } from "lucide-react"
-import { useState, useRef, useEffect } from "react"
+import { useState, useRef, useEffect, useCallback } from "react"
 import {
   Tooltip,
   TooltipContent,
@@ -31,55 +34,40 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip"
 
-function ToolCallIcon({ type }: { type: ToolCall["type"] }) {
+function ToolCallIcon({ tool }: { tool: string }) {
   const cls = "h-3 w-3"
-  switch (type) {
-    case "read_file":
+  switch (tool) {
+    case "Read":
       return <FileText className={cls} />
-    case "edit_file":
+    case "Edit":
       return <Pencil className={cls} />
-    case "write_file":
+    case "Write":
       return <FilePlus className={cls} />
-    case "search":
-      return <Search className={cls} />
-    case "terminal":
+    case "Glob":
+      return <FolderSearch className={cls} />
+    case "Grep":
+      return <Regex className={cls} />
+    case "Bash":
       return <Terminal className={cls} />
-    case "pr_ready":
-      return <GitPullRequest className={cls} />
-  }
-}
-
-function toolCallDescription(tc: ToolCall): string {
-  switch (tc.type) {
-    case "read_file":
-      return tc.file ? `Read ${tc.file}` : tc.summary
-    case "edit_file":
-      return tc.file ? `Edited ${tc.file}` : tc.summary
-    case "write_file":
-      return tc.file ? `Created ${tc.file}` : tc.summary
-    case "search":
-      return tc.summary
-    case "terminal":
-      return tc.summary
-    case "pr_ready":
-      return tc.summary
+    case "Search":
+      return <Search className={cls} />
+    default:
+      return <Terminal className={cls} />
   }
 }
 
 function ToolCallTimeline({ toolCalls }: { toolCalls: ToolCall[] }) {
   return (
     <div className="relative my-1.5 ml-2">
-      {/* Vertical connecting line */}
       <div className="absolute left-[5.5px] top-2 bottom-2 w-px bg-border" />
-
       <div className="flex flex-col">
         {toolCalls.map((tc) => (
           <div key={tc.id} className="relative flex items-center gap-2.5 py-[5px]">
             <div className="relative z-10 flex h-[12px] w-[12px] shrink-0 items-center justify-center text-muted-foreground">
-              <ToolCallIcon type={tc.type} />
+              <ToolCallIcon tool={tc.tool} />
             </div>
             <span className="text-xs text-muted-foreground">
-              {toolCallDescription(tc)}
+              {tc.summary}
             </span>
           </div>
         ))}
@@ -88,32 +76,11 @@ function ToolCallTimeline({ toolCalls }: { toolCalls: ToolCall[] }) {
   )
 }
 
-function PRBanner({ prLink }: { prLink: string }) {
-  return (
-    <a
-      href={prLink}
-      target="_blank"
-      rel="noopener noreferrer"
-      className="flex cursor-pointer items-center gap-3 rounded-lg border border-primary/30 bg-primary/10 px-4 py-3 transition-colors hover:bg-primary/15"
-    >
-      <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary/20">
-        <GitPullRequest className="h-4 w-4 text-primary" />
-      </div>
-      <div className="flex min-w-0 flex-col">
-        <span className="text-sm font-medium text-foreground">Pull request ready</span>
-        <span className="truncate text-xs text-muted-foreground">{prLink.replace("https://github.com/", "")}</span>
-      </div>
-      <ExternalLink className="ml-auto h-4 w-4 shrink-0 text-muted-foreground" />
-    </a>
-  )
-}
-
-function MessageBubble({ message, agent }: { message: Message; agent: Agent }) {
+function MessageBubble({ message }: { message: Message }) {
   const isUser = message.role === "user"
 
   return (
     <div className="flex flex-col">
-      {/* Header row */}
       <div className="flex items-center gap-2 mb-1">
         {!isUser && (
           <div className="flex h-5 w-5 shrink-0 items-center justify-center rounded bg-primary/20">
@@ -124,103 +91,67 @@ function MessageBubble({ message, agent }: { message: Message; agent: Agent }) {
           "text-[11px] font-medium",
           isUser ? "text-muted-foreground" : "text-foreground"
         )}>
-          {isUser ? "You" : agentLabels[agent]}
+          {isUser ? "You" : "Claude Code"}
         </span>
         <span className="text-[10px] text-muted-foreground/40">{message.timestamp}</span>
       </div>
 
-      {/* Message content */}
       <div
         className={cn(
-          "rounded-lg px-4 py-2.5 text-sm leading-relaxed",
+          "rounded-lg px-4 py-2.5 text-sm leading-relaxed whitespace-pre-wrap",
           isUser
             ? "bg-primary/15 text-foreground"
             : "bg-secondary/60 text-foreground"
         )}
       >
-        {message.content}
+        {message.content || (message.role === "assistant" && (
+          <span className="text-muted-foreground/50 italic">Thinking...</span>
+        ))}
       </div>
 
-      {/* Tool calls timeline */}
       {message.toolCalls && message.toolCalls.length > 0 && (
         <ToolCallTimeline toolCalls={message.toolCalls} />
-      )}
-
-      {/* PR link */}
-      {message.prLink && (
-        <div className="mt-2">
-          <PRBanner prLink={message.prLink} />
-        </div>
-      )}
-    </div>
-  )
-}
-
-function AgentPicker({
-  agent,
-  onSelect,
-}: {
-  agent: Agent
-  onSelect: (a: Agent) => void
-}) {
-  const [open, setOpen] = useState(false)
-  const agents: Agent[] = ["claude-code", "codex", "opencode"]
-
-  return (
-    <div className="relative">
-      <button
-        onClick={() => setOpen(!open)}
-        className="flex cursor-pointer items-center gap-1.5 rounded-md px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-      >
-        {agentLabels[agent]}
-        <ChevronDown className="h-3 w-3" />
-      </button>
-      {open && (
-        <div className="absolute bottom-full left-0 mb-1 z-50 flex flex-col rounded-lg border border-border bg-popover py-1 shadow-lg">
-          {agents.map((a) => (
-            <button
-              key={a}
-              onClick={() => {
-                onSelect(a)
-                setOpen(false)
-              }}
-              className={cn(
-                "flex cursor-pointer items-center gap-2 whitespace-nowrap px-3 py-1.5 text-xs transition-colors hover:bg-accent",
-                a === agent ? "text-primary" : "text-foreground"
-              )}
-            >
-              {a === agent && <ArrowRight className="h-3 w-3" />}
-              {a !== agent && <span className="w-3" />}
-              {agentLabels[a]}
-            </button>
-          ))}
-        </div>
       )}
     </div>
   )
 }
 
 const headerActions = [
-  { icon: GitPullRequest, label: "Create PR" },
-  { icon: GitMerge, label: "Merge" },
-  { icon: GitCompareArrows, label: "Rebase" },
-  { icon: RotateCcw, label: "Reset" },
-  { icon: GitFork, label: "Fork" },
-  { icon: Tag, label: "Tag" },
-  { icon: Diff, label: "Diff" },
-  { icon: History, label: "Log" },
+  { icon: GitPullRequest, label: "Create PR", action: "create-pr" },
+  { icon: GitMerge, label: "Merge", action: "merge" },
+  { icon: GitCompareArrows, label: "Rebase", action: "rebase" },
+  { icon: RotateCcw, label: "Reset", action: "reset" },
+  { icon: GitFork, label: "Fork", action: "fork" },
+  { icon: Tag, label: "Tag", action: "tag" },
+  { icon: Diff, label: "Diff", action: "diff" },
+  { icon: History, label: "Log", action: "log" },
 ]
 
 interface ChatPanelProps {
   branch: Branch
   repoFullName: string
+  settings: Settings
+  onAddMessage: (message: Message) => void
+  onUpdateLastMessage: (updates: Partial<Message>) => void
+  onUpdateBranch: (updates: Partial<Branch>) => void
+  onForceSave: () => void
   onBack?: () => void
 }
 
-export function ChatPanel({ branch, repoFullName, onBack }: ChatPanelProps) {
+export function ChatPanel({
+  branch,
+  repoFullName,
+  settings,
+  onAddMessage,
+  onUpdateLastMessage,
+  onUpdateBranch,
+  onForceSave,
+  onBack,
+}: ChatPanelProps) {
   const [input, setInput] = useState("")
-  const [agent, setAgent] = useState<Agent>(branch.agent)
   const scrollRef = useRef<HTMLDivElement>(null)
+  const abortControllerRef = useRef<AbortController | null>(null)
+  const textareaRef = useRef<HTMLTextAreaElement>(null)
 
   useEffect(() => {
     if (scrollRef.current) {
@@ -228,9 +159,164 @@ export function ChatPanel({ branch, repoFullName, onBack }: ChatPanelProps) {
     }
   }, [branch.messages])
 
+  // Auto-resize textarea
   useEffect(() => {
-    setAgent(branch.agent)
-  }, [branch.agent])
+    if (textareaRef.current) {
+      textareaRef.current.style.height = "auto"
+      textareaRef.current.style.height = Math.min(textareaRef.current.scrollHeight, 150) + "px"
+    }
+  }, [input])
+
+  const handleSend = useCallback(async () => {
+    const prompt = input.trim()
+    if (!prompt || branch.status === "running" || branch.status === "creating") return
+    if (!branch.sandboxId || !branch.contextId) return
+
+    if (!settings.daytonaApiKey) {
+      onAddMessage({
+        id: generateId(),
+        role: "assistant",
+        content: "Please configure your Daytona API key in Settings.",
+        timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+      })
+      return
+    }
+
+    // Add user message
+    const userMsg: Message = {
+      id: generateId(),
+      role: "user",
+      content: prompt,
+      timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+    }
+    onAddMessage(userMsg)
+    setInput("")
+
+    // Set branch to running
+    onUpdateBranch({ status: "running" })
+
+    // Add placeholder assistant message
+    const assistantMsg: Message = {
+      id: generateId(),
+      role: "assistant",
+      content: "",
+      toolCalls: [],
+      timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+    }
+    onAddMessage(assistantMsg)
+
+    // Stream the response
+    const controller = new AbortController()
+    abortControllerRef.current = controller
+    let content = ""
+    let toolCalls: ToolCall[] = []
+
+    try {
+      const response = await fetch("/api/agent/query", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          daytonaApiKey: settings.daytonaApiKey,
+          sandboxId: branch.sandboxId,
+          contextId: branch.contextId,
+          prompt,
+        }),
+        signal: controller.signal,
+      })
+
+      if (!response.ok) {
+        const data = await response.json()
+        throw new Error(data.error || "Request failed")
+      }
+
+      const reader = response.body!.getReader()
+      const decoder = new TextDecoder()
+      let buffer = ""
+
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+
+        buffer += decoder.decode(value, { stream: true })
+        const parts = buffer.split("\n\n")
+        buffer = parts.pop()!
+
+        for (const part of parts) {
+          for (const line of part.split("\n")) {
+            if (!line.startsWith("data: ")) continue
+            try {
+              const data = JSON.parse(line.slice(6))
+              if (data.type === "stdout" || data.type === "stderr") {
+                const text = data.content as string
+                // Check for tool use indicator
+                if (text.startsWith("TOOL_USE:")) {
+                  const toolName = text.replace("TOOL_USE:", "").trim()
+                  toolCalls = [
+                    ...toolCalls,
+                    {
+                      id: generateId(),
+                      tool: toolName,
+                      summary: toolName,
+                      timestamp: new Date().toLocaleTimeString([], {
+                        hour: "2-digit",
+                        minute: "2-digit",
+                      }),
+                    },
+                  ]
+                } else {
+                  content += text
+                }
+                onUpdateLastMessage({ content, toolCalls })
+              } else if (data.type === "error") {
+                content += content ? `\n\nError: ${data.message}` : `Error: ${data.message}`
+                onUpdateLastMessage({ content })
+              }
+            } catch {}
+          }
+        }
+      }
+    } catch (err: unknown) {
+      if (err instanceof DOMException && err.name === "AbortError") {
+        content += content ? "\n\n[Stopped by user]" : "[Stopped by user]"
+        onUpdateLastMessage({ content })
+      } else {
+        const message = err instanceof Error ? err.message : "Unknown error"
+        content += content ? `\n\nError: ${message}` : `Error: ${message}`
+        onUpdateLastMessage({ content })
+      }
+    } finally {
+      onUpdateBranch({ status: "idle", lastActivity: "now" })
+      abortControllerRef.current = null
+      onForceSave()
+    }
+  }, [input, branch, settings, onAddMessage, onUpdateLastMessage, onUpdateBranch, onForceSave])
+
+  function handleStop() {
+    abortControllerRef.current?.abort()
+  }
+
+  function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault()
+      handleSend()
+    }
+  }
+
+  function handleHeaderAction(action: string) {
+    // For actions that make sense, send them as agent messages
+    const actionPrompts: Record<string, string> = {
+      "create-pr": "Push the current branch to the remote and create a pull request with a descriptive title and body based on the changes made.",
+      "diff": "Show me the git diff of all changes made on this branch.",
+      "log": "Show me the git log of recent commits on this branch.",
+    }
+    const prompt = actionPrompts[action]
+    if (prompt && branch.sandboxId && branch.contextId) {
+      setInput(prompt)
+    }
+  }
+
+  const canSend = input.trim() && branch.status !== "running" && branch.status !== "creating" && branch.sandboxId && branch.contextId
+  const isReady = branch.sandboxId && branch.contextId && branch.status !== "creating"
 
   return (
     <TooltipProvider delayDuration={0}>
@@ -256,7 +342,11 @@ export function ChatPanel({ branch, repoFullName, onBack }: ChatPanelProps) {
             {headerActions.map((action) => (
               <Tooltip key={action.label}>
                 <TooltipTrigger asChild>
-                  <button className="flex cursor-pointer h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground">
+                  <button
+                    onClick={() => handleHeaderAction(action.action)}
+                    disabled={!isReady}
+                    className="flex cursor-pointer h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:opacity-30 disabled:cursor-not-allowed"
+                  >
                     <action.icon className="h-3.5 w-3.5" />
                   </button>
                 </TooltipTrigger>
@@ -268,17 +358,36 @@ export function ChatPanel({ branch, repoFullName, onBack }: ChatPanelProps) {
 
         {/* Messages */}
         <div ref={scrollRef} className="flex-1 overflow-y-auto px-3 py-6 sm:px-6">
-          {branch.messages.length === 0 ? (
+          {branch.status === "creating" ? (
+            <div className="flex h-full flex-col items-center justify-center gap-3 text-muted-foreground">
+              <Loader2 className="h-8 w-8 animate-spin text-primary" />
+              <p className="text-sm">Setting up sandbox...</p>
+              <p className="text-xs text-muted-foreground/60">
+                Cloning repo, installing agent SDK...
+              </p>
+            </div>
+          ) : branch.status === "error" && !branch.sandboxId ? (
+            <div className="flex h-full flex-col items-center justify-center gap-3 text-muted-foreground">
+              <AlertCircle className="h-8 w-8 text-red-400" />
+              <p className="text-sm text-red-400">Failed to create sandbox</p>
+              <p className="text-xs text-muted-foreground/60">
+                Check your API keys in Settings and try again
+              </p>
+            </div>
+          ) : branch.messages.length === 0 ? (
             <div className="flex h-full flex-col items-center justify-center gap-3 text-muted-foreground">
               <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-secondary">
                 <Terminal className="h-5 w-5" />
               </div>
-              <p className="text-sm">Start a conversation to run an agent on this branch</p>
+              <p className="text-sm">Start a conversation with Claude Code</p>
+              <p className="text-xs text-muted-foreground/60">
+                The agent has access to Read, Edit, Write, Bash and more
+              </p>
             </div>
           ) : (
             <div className="flex flex-col gap-5">
               {branch.messages.map((msg) => (
-                <MessageBubble key={msg.id} message={msg} agent={branch.agent} />
+                <MessageBubble key={msg.id} message={msg} />
               ))}
               {branch.status === "running" && (
                 <div className="flex items-center gap-2 text-xs text-muted-foreground">
@@ -294,16 +403,29 @@ export function ChatPanel({ branch, repoFullName, onBack }: ChatPanelProps) {
         <div className="border-t border-border px-3 py-3 sm:px-6">
           <div className="flex items-end gap-2 rounded-lg border border-border bg-card px-3 py-2 focus-within:border-primary/50 focus-within:ring-1 focus-within:ring-primary/20">
             <textarea
+              ref={textareaRef}
               value={input}
               onChange={(e) => setInput(e.target.value)}
-              placeholder="Describe what you want the agent to do..."
+              onKeyDown={handleKeyDown}
+              placeholder={
+                branch.status === "creating"
+                  ? "Waiting for sandbox..."
+                  : !branch.sandboxId
+                  ? "Sandbox not available"
+                  : "Describe what you want the agent to do..."
+              }
               rows={1}
-              className="flex-1 resize-none bg-transparent text-sm text-foreground placeholder:text-muted-foreground/50 focus:outline-none"
+              disabled={!isReady}
+              className="flex-1 resize-none bg-transparent text-sm text-foreground placeholder:text-muted-foreground/50 focus:outline-none disabled:opacity-50"
             />
             <button
+              onClick={branch.status === "running" ? handleStop : handleSend}
+              disabled={branch.status === "running" ? false : !canSend}
               className={cn(
                 "flex cursor-pointer h-8 w-8 shrink-0 items-center justify-center rounded-md transition-colors",
-                input.trim()
+                branch.status === "running"
+                  ? "bg-red-500/80 text-white hover:bg-red-500"
+                  : canSend
                   ? "bg-primary text-primary-foreground hover:bg-primary/90"
                   : "bg-secondary text-muted-foreground"
               )}
@@ -316,7 +438,10 @@ export function ChatPanel({ branch, repoFullName, onBack }: ChatPanelProps) {
             </button>
           </div>
           <div className="mt-1.5 flex items-center">
-            <AgentPicker agent={agent} onSelect={setAgent} />
+            <span className="flex items-center gap-1.5 px-2 py-1 text-xs text-muted-foreground">
+              <Terminal className="h-3 w-3" />
+              Claude Code
+            </span>
           </div>
         </div>
       </div>
@@ -324,15 +449,21 @@ export function ChatPanel({ branch, repoFullName, onBack }: ChatPanelProps) {
   )
 }
 
-export function EmptyChatPanel() {
+export function EmptyChatPanel({ hasRepos }: { hasRepos?: boolean }) {
   return (
     <div className="flex min-w-0 flex-1 flex-col items-center justify-center gap-4 bg-background text-muted-foreground">
       <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-secondary">
         <Terminal className="h-7 w-7" />
       </div>
       <div className="flex flex-col items-center gap-1">
-        <p className="text-sm font-medium text-foreground">Select a branch to start</p>
-        <p className="text-xs text-muted-foreground">Choose a repository and branch from the sidebar</p>
+        <p className="text-sm font-medium text-foreground">
+          {hasRepos ? "Select a branch to start" : "Add a repository to get started"}
+        </p>
+        <p className="text-xs text-muted-foreground">
+          {hasRepos
+            ? "Choose a repository and branch from the sidebar"
+            : "Click the + button in the sidebar to add a GitHub repo"}
+        </p>
       </div>
     </div>
   )
