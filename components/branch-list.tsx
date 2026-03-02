@@ -7,6 +7,13 @@ import { generateId } from "@/lib/store"
 import { GitBranch, Plus, Search, ChevronDown, Loader2, X } from "lucide-react"
 import { Input } from "@/components/ui/input"
 import { useState, useRef, useEffect, useCallback } from "react"
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from "@/components/ui/dialog"
 
 const WORDS = [
   "swift","lunar","amber","coral","ember","frost","bloom","spark","drift","pulse",
@@ -80,7 +87,6 @@ export function BranchList({
   )
   const [creating, setCreating] = useState(false)
   const [createError, setCreateError] = useState<string | null>(null)
-  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null)
   const isResizing = useRef(false)
   const dropdownRef = useRef<HTMLDivElement>(null)
   const newBranchInputRef = useRef<HTMLInputElement>(null)
@@ -128,12 +134,8 @@ export function BranchList({
     }
   }, [newBranchOpen])
 
-  // Auto-dismiss branch delete confirmation after 3 seconds
-  useEffect(() => {
-    if (!confirmDeleteId) return
-    const t = setTimeout(() => setConfirmDeleteId(null), 3000)
-    return () => clearTimeout(t)
-  }, [confirmDeleteId])
+  const [deleteModalBranchId, setDeleteModalBranchId] = useState<string | null>(null)
+  const deleteModalBranch = deleteModalBranchId ? repo.branches.find((b) => b.id === deleteModalBranchId) : null
 
   function startResize() {
     isResizing.current = true
@@ -315,30 +317,15 @@ export function BranchList({
                       </div>
                     </div>
                   </button>
-                  {/* Delete button on hover — two-click confirmation */}
-                  {confirmDeleteId === branch.id ? (
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        setConfirmDeleteId(null)
-                        onRemoveBranch(branch.id)
-                      }}
-                      className="absolute right-2 top-1/2 -translate-y-1/2 flex h-6 cursor-pointer items-center gap-1 rounded bg-destructive/20 px-1.5 text-[10px] font-medium text-red-400 transition-all hover:bg-destructive/30"
-                    >
-                      <X className="h-3 w-3" />
-                      Remove?
-                    </button>
-                  ) : (
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        setConfirmDeleteId(branch.id)
-                      }}
-                      className="absolute right-2 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 flex h-6 w-6 cursor-pointer items-center justify-center rounded text-muted-foreground/60 transition-all hover:bg-destructive/20 hover:text-red-400"
-                    >
-                      <X className="h-3 w-3" />
-                    </button>
-                  )}
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      setDeleteModalBranchId(branch.id)
+                    }}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 flex h-6 w-6 cursor-pointer items-center justify-center rounded text-muted-foreground/60 transition-all hover:bg-destructive/20 hover:text-red-400"
+                  >
+                    <X className="h-3 w-3" />
+                  </button>
                 </div>
               )
             })}
@@ -421,6 +408,37 @@ export function BranchList({
           </button>
         </div>
       )}
+
+      {/* Delete confirmation modal */}
+      <Dialog open={!!deleteModalBranchId} onOpenChange={(open) => { if (!open) setDeleteModalBranchId(null) }}>
+        <DialogContent className="sm:max-w-[360px]">
+          <DialogHeader>
+            <DialogTitle className="text-sm">Remove branch</DialogTitle>
+          </DialogHeader>
+          <p className="text-xs text-muted-foreground">
+            Are you sure you want to remove <span className="font-semibold text-foreground">{deleteModalBranch?.name}</span>? This will delete the chat history and sandbox.
+          </p>
+          <DialogFooter className="gap-2 sm:gap-0">
+            <button
+              onClick={() => setDeleteModalBranchId(null)}
+              className="rounded-md border border-border px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-accent cursor-pointer"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={() => {
+                if (deleteModalBranchId) {
+                  onRemoveBranch(deleteModalBranchId)
+                  setDeleteModalBranchId(null)
+                }
+              }}
+              className="rounded-md bg-destructive px-3 py-1.5 text-xs font-medium text-destructive-foreground transition-colors hover:bg-destructive/90 cursor-pointer"
+            >
+              Remove
+            </button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Resize handle */}
       <div
