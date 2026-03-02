@@ -27,6 +27,8 @@ The repository is cloned at {path}.
 You are working on the git branch that is currently checked out.
 Use this directory for all file operations.
 Always check the current state of files before editing them.
+After making meaningful changes, commit them with a descriptive message using git add and git commit.
+Do not push — pushing is handled automatically.
 When you finish a task, provide a clear summary of what you did.
 """.format(path=repo_path)
 
