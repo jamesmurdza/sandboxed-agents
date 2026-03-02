@@ -22,10 +22,12 @@ interface AddRepoModalProps {
   onClose: () => void
   settings: Settings
   githubUser: string | null
+  existingRepos: Repo[]
   onAddRepo: (repo: Repo) => void
+  onSelectExistingRepo: (repoId: string) => void
 }
 
-export function AddRepoModal({ open, onClose, settings, githubUser, onAddRepo }: AddRepoModalProps) {
+export function AddRepoModal({ open, onClose, settings, githubUser, existingRepos, onAddRepo, onSelectExistingRepo }: AddRepoModalProps) {
   const [mode, setMode] = useState<"select" | "url">("select")
   const [url, setUrl] = useState("")
   const [search, setSearch] = useState("")
@@ -72,6 +74,15 @@ export function AddRepoModal({ open, onClose, settings, githubUser, onAddRepo }:
   }
 
   async function addRepoByInfo(info: { name: string; owner: string; avatar: string; defaultBranch: string }) {
+    // Check if repo already exists — if so, just select it
+    const existing = existingRepos.find(
+      (r) => r.owner.toLowerCase() === info.owner.toLowerCase() && r.name.toLowerCase() === info.name.toLowerCase()
+    )
+    if (existing) {
+      onSelectExistingRepo(existing.id)
+      onClose()
+      return
+    }
     const repo: Repo = {
       id: generateId(),
       name: info.name,

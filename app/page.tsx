@@ -316,7 +316,9 @@ export default function Home() {
         onClose={() => setAddRepoOpen(false)}
         settings={settings}
         githubUser={githubUser}
+        existingRepos={repos}
         onAddRepo={handleAddRepo}
+        onSelectExistingRepo={handleSelectRepo}
       />
     </>
   )
