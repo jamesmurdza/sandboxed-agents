@@ -25,6 +25,7 @@ import {
   Regex,
   AlertCircle,
   GitCommitHorizontal,
+  GitBranch,
 } from "lucide-react"
 import { useState, useRef, useEffect, useCallback } from "react"
 import Markdown from "react-markdown"
@@ -93,13 +94,13 @@ function ToolCallTimeline({ toolCalls }: { toolCalls: ToolCall[] }) {
   )
 }
 
-function MessageBubble({ message, onCommitClick }: { message: Message; onCommitClick?: (hash: string, msg: string) => void }) {
+function MessageBubble({ message, onCommitClick, onBranchFromCommit }: { message: Message; onCommitClick?: (hash: string, msg: string) => void; onBranchFromCommit?: (hash: string) => void }) {
   const isUser = message.role === "user"
 
   // Commit marker rendering
   if (message.commitHash) {
     return (
-      <div id={`commit-${message.commitHash}`} className="flex items-center gap-3 py-1">
+      <div id={`commit-${message.commitHash}`} className="group/commitrow flex items-center gap-3 py-1">
         <div className="h-px flex-1 bg-border" />
         <button
           onClick={() => onCommitClick?.(message.commitHash!, message.commitMessage || "")}
@@ -109,7 +110,17 @@ function MessageBubble({ message, onCommitClick }: { message: Message; onCommitC
           <code className="font-mono text-[10px] text-primary/70">{message.commitHash}</code>
           <span className="max-w-[200px] truncate">{message.commitMessage}</span>
         </button>
-        <div className="h-px flex-1 bg-border" />
+        <div className="relative h-px flex-1 bg-border">
+          {onBranchFromCommit && (
+            <button
+              onClick={(e) => { e.stopPropagation(); onBranchFromCommit(message.commitHash!) }}
+              title="Branch from here"
+              className="absolute right-0 top-1/2 -translate-y-1/2 flex h-5 w-5 cursor-pointer items-center justify-center rounded-full border border-border bg-card text-muted-foreground opacity-0 group-hover/commitrow:opacity-100 hover:text-primary hover:border-primary/30 transition-all"
+            >
+              <GitBranch className="h-3 w-3" />
+            </button>
+          )}
+        </div>
       </div>
     )
   }
@@ -182,6 +193,7 @@ interface ChatPanelProps {
   onUpdateBranch: (updates: Partial<Branch>) => void
   onForceSave: () => void
   onCommitsDetected?: () => void
+  onBranchFromCommit?: (commitHash: string) => void
   onBack?: () => void
 }
 
@@ -198,6 +210,7 @@ export function ChatPanel({
   onUpdateBranch,
   onForceSave,
   onCommitsDetected,
+  onBranchFromCommit,
   onBack,
 }: ChatPanelProps) {
   const [input, setInput] = useState("")
@@ -890,7 +903,7 @@ export function ChatPanel({
           ) : (
             <div className="flex flex-col gap-5">
               {branch.messages.map((msg) => (
-                <MessageBubble key={msg.id} message={msg} onCommitClick={(hash, msg) => { setCommitDiffHash(hash); setCommitDiffMessage(msg) }} />
+                <MessageBubble key={msg.id} message={msg} onCommitClick={(hash, msg) => { setCommitDiffHash(hash); setCommitDiffMessage(msg) }} onBranchFromCommit={onBranchFromCommit} />
               ))}
               {branch.status === "running" && (
                 <div className="flex items-center gap-2 text-xs text-muted-foreground">

@@ -293,6 +293,7 @@ export default function Home() {
               }
               onForceSave={forceSave}
               onCommitsDetected={() => setGitHistoryRefreshTrigger((n) => n + 1)}
+              onBranchFromCommit={(hash) => setPendingStartCommit(hash)}
               onBack={() => setMobileView("branches")}
             />
           ) : (
