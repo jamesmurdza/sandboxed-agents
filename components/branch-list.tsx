@@ -123,6 +123,29 @@ export function BranchList({
     const branchName = newBranchName.trim()
     if (!branchName || creating) return
 
+    // Validate branch name
+    if (/\s/.test(branchName)) {
+      setCreateError("Branch name cannot contain spaces")
+      return
+    }
+    if (/[~^:?*\[\\]/.test(branchName)) {
+      setCreateError("Branch name contains invalid characters")
+      return
+    }
+    if (branchName.startsWith("-") || branchName.startsWith(".") || branchName.endsWith(".") || branchName.endsWith(".lock")) {
+      setCreateError("Invalid branch name format")
+      return
+    }
+    if (branchName.includes("..") || branchName.includes("@{")) {
+      setCreateError("Branch name contains invalid sequence")
+      return
+    }
+    // Check for duplicates
+    if (repo.branches.some((b) => b.name === branchName)) {
+      setCreateError("A branch with this name already exists")
+      return
+    }
+
     if (!settings.daytonaApiKey || !settings.anthropicApiKey || !settings.githubPat) {
       setCreateError("Please configure API keys in Settings first")
       return
