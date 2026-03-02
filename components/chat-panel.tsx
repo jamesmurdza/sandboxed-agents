@@ -118,7 +118,7 @@ function MessageBubble({ message, onCommitClick, onBranchFromCommit }: { message
             <button
               onClick={(e) => { e.stopPropagation(); onBranchFromCommit(message.commitHash!) }}
               title="Branch from here"
-              className="absolute right-0 top-1/2 -translate-y-1/2 flex h-5 w-5 cursor-pointer items-center justify-center rounded-full border border-border bg-card text-muted-foreground opacity-0 group-hover/commitrow:opacity-100 hover:text-primary hover:border-primary/30 transition-all"
+              className="absolute right-1.5 top-1/2 -translate-y-1/2 flex px-2 cursor-pointer items-center justify-center bg-background text-muted-foreground hover:text-primary transition-colors"
             >
               <GitBranch className="h-3 w-3" />
             </button>
