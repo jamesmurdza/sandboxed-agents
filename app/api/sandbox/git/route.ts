@@ -21,7 +21,6 @@ export async function POST(req: Request) {
       }
 
       case "log": {
-        // Use process to get git log since SDK may not expose getCommitHistory directly
         const result = await sandbox.process.executeCommand(
           `cd ${repoPath} && git log --format='{"hash":"%H","shortHash":"%h","author":"%an","email":"%ae","message":"%s","timestamp":"%aI"}' -30 2>&1`
         )
@@ -36,7 +35,17 @@ export async function POST(req: Request) {
             try { return JSON.parse(line) } catch { return null }
           })
           .filter(Boolean)
-        return Response.json({ commits })
+        // Find merge-base with the base branch to identify inherited commits
+        let mergeBase = ""
+        if (targetBranch) {
+          const mbResult = await sandbox.process.executeCommand(
+            `cd ${repoPath} && git merge-base HEAD origin/${targetBranch} 2>&1`
+          )
+          if (!mbResult.exitCode) {
+            mergeBase = mbResult.result.trim()
+          }
+        }
+        return Response.json({ commits, mergeBase })
       }
 
       case "auto-commit-push": {

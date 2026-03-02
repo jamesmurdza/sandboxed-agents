@@ -296,6 +296,7 @@ export default function Home() {
             <GitHistoryPanel
               sandboxId={activeBranch.sandboxId}
               repoName={activeRepo.name}
+              baseBranch={activeBranch.baseBranch}
               settings={settings}
               onClose={() => setGitHistoryOpen(false)}
             />
