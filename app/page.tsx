@@ -191,12 +191,13 @@ export default function Home() {
               messages: [...b.messages, message],
               lastActivity: "now",
               lastActivityTs: Date.now(),
+              unread: branchId !== activeBranchId ? true : b.unread,
             }
           }),
         }
       })
     )
-  }, [activeRepo, setRepos])
+  }, [activeRepo, activeBranchId, setRepos])
 
   const handleUpdateLastMessage = useCallback((branchId: string, updates: Partial<Message>) => {
     if (!activeRepo) return
