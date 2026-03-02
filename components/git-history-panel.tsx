@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect, useCallback } from "react"
-import { X, RefreshCw, Loader2, GitCommitHorizontal } from "lucide-react"
+import { X, RefreshCw, Loader2, GitCommitHorizontal, GitBranch } from "lucide-react"
 import { cn } from "@/lib/utils"
 import type { Settings } from "@/lib/types"
 
@@ -21,10 +21,11 @@ interface GitHistoryPanelProps {
   settings: Settings
   onClose: () => void
   onScrollToCommit?: (shortHash: string) => void
+  onBranchFromCommit?: (commitHash: string) => void
   refreshTrigger?: number
 }
 
-export function GitHistoryPanel({ sandboxId, repoName, baseBranch, settings, onClose, onScrollToCommit, refreshTrigger }: GitHistoryPanelProps) {
+export function GitHistoryPanel({ sandboxId, repoName, baseBranch, settings, onClose, onScrollToCommit, onBranchFromCommit, refreshTrigger }: GitHistoryPanelProps) {
   const [commits, setCommits] = useState<GitCommit[]>([])
   const [mergeBase, setMergeBase] = useState("")
   const [loading, setLoading] = useState(true)
@@ -126,7 +127,7 @@ export function GitHistoryPanel({ sandboxId, repoName, baseBranch, settings, onC
                   key={commit.hash || i}
                   onClick={() => onScrollToCommit?.(commit.shortHash)}
                   className={cn(
-                    "relative flex gap-2.5 border-b border-border/50 px-3 py-2.5",
+                    "group/commit relative flex gap-2.5 border-b border-border/50 px-3 py-2.5",
                     isInherited && "opacity-40",
                     onScrollToCommit && "cursor-pointer hover:bg-accent/30"
                   )}
@@ -148,6 +149,15 @@ export function GitHistoryPanel({ sandboxId, repoName, baseBranch, settings, onC
                     <div className="flex items-center gap-2">
                       <code className="text-[10px] font-mono text-primary/70">{commit.shortHash}</code>
                       <span className="text-[10px] text-muted-foreground/60">{commit.author}</span>
+                      {onBranchFromCommit && (
+                        <button
+                          onClick={(e) => { e.stopPropagation(); onBranchFromCommit(commit.hash) }}
+                          title="Branch from here"
+                          className="ml-auto flex h-4 w-4 cursor-pointer items-center justify-center rounded text-muted-foreground/0 group-hover/commit:text-muted-foreground hover:!text-primary transition-colors"
+                        >
+                          <GitBranch className="h-3 w-3" />
+                        </button>
+                      )}
                     </div>
                     <span className="text-[10px] text-muted-foreground/40">{formatDate(commit.timestamp)}</span>
                   </div>

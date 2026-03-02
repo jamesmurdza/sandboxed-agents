@@ -20,6 +20,7 @@ export default function Home() {
   const [addRepoOpen, setAddRepoOpen] = useState(false)
   const [gitHistoryOpen, setGitHistoryOpen] = useState(false)
   const [gitHistoryRefreshTrigger, setGitHistoryRefreshTrigger] = useState(0)
+  const [pendingStartCommit, setPendingStartCommit] = useState<string | null>(null)
   const [githubUser, setGithubUser] = useState<string | null>(null)
   const [userAvatar, setUserAvatar] = useState<string | null>(null)
 
@@ -260,6 +261,8 @@ export default function Home() {
               settings={settings}
               width={branchListWidth}
               onWidthChange={setBranchListWidth}
+              pendingStartCommit={pendingStartCommit}
+              onClearPendingCommit={() => setPendingStartCommit(null)}
             />
           ) : (
             <div
@@ -308,6 +311,7 @@ export default function Home() {
               onScrollToCommit={(shortHash) => {
                 document.getElementById(`commit-${shortHash}`)?.scrollIntoView({ behavior: "smooth", block: "center" })
               }}
+              onBranchFromCommit={(commitHash) => setPendingStartCommit(commitHash)}
             />
           )}
         </div>

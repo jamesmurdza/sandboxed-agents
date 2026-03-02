@@ -36,6 +36,8 @@ interface BranchListProps {
   settings: Settings
   width: number
   onWidthChange: (w: number) => void
+  pendingStartCommit?: string | null
+  onClearPendingCommit?: () => void
 }
 
 function StatusDot({ branch, isActive }: { branch: Branch; isActive: boolean }) {
@@ -76,6 +78,8 @@ export function BranchList({
   settings,
   width,
   onWidthChange,
+  pendingStartCommit,
+  onClearPendingCommit,
 }: BranchListProps) {
   const [search, setSearch] = useState("")
   const [branchFromOpen, setBranchFromOpen] = useState(false)
@@ -87,6 +91,7 @@ export function BranchList({
   )
   const [creating, setCreating] = useState(false)
   const [createError, setCreateError] = useState<string | null>(null)
+  const [startCommit, setStartCommit] = useState<string | null>(null)
   const isResizing = useRef(false)
   const dropdownRef = useRef<HTMLDivElement>(null)
   const newBranchInputRef = useRef<HTMLInputElement>(null)
@@ -133,6 +138,16 @@ export function BranchList({
       newBranchInputRef.current.focus()
     }
   }, [newBranchOpen])
+
+  // Open new branch dialog when a commit is selected from git history
+  useEffect(() => {
+    if (pendingStartCommit) {
+      setNewBranchOpen(true)
+      setBranchPlaceholder(randomBranchName())
+      setStartCommit(pendingStartCommit)
+      onClearPendingCommit?.()
+    }
+  }, [pendingStartCommit, onClearPendingCommit])
 
   const [deleteModalBranchId, setDeleteModalBranchId] = useState<string | null>(null)
   const deleteModalBranch = deleteModalBranchId ? repo.branches.find((b) => b.id === deleteModalBranchId) : null
@@ -193,6 +208,7 @@ export function BranchList({
     onAddBranch(branch)
     setNewBranchOpen(false)
     setNewBranchName("")
+    setStartCommit(null)
 
     try {
       const res = await fetch("/api/sandbox/create", {
@@ -206,6 +222,7 @@ export function BranchList({
           repoName: repo.name,
           baseBranch: newBranchBase,
           newBranch: branchName,
+          ...(startCommit ? { startCommit } : {}),
         }),
       })
 
@@ -366,17 +383,31 @@ export function BranchList({
             />
             <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
               <span>from</span>
-              <select
-                value={newBranchBase}
-                onChange={(e) => setNewBranchBase(e.target.value)}
-                className="bg-secondary rounded px-1.5 py-0.5 text-[11px] text-foreground border border-border"
-                disabled={creating}
-              >
-                <option value={repo.defaultBranch || "main"}>{repo.defaultBranch || "main"}</option>
-                {repo.branches.map((b) => (
-                  <option key={b.id} value={b.name}>{b.name}</option>
-                ))}
-              </select>
+              {startCommit ? (
+                <div className="flex items-center gap-1.5">
+                  <code className="bg-secondary rounded px-1.5 py-0.5 text-[11px] font-mono text-primary/70 border border-border">
+                    {startCommit.slice(0, 7)}
+                  </code>
+                  <button
+                    onClick={() => setStartCommit(null)}
+                    className="text-muted-foreground hover:text-foreground cursor-pointer"
+                  >
+                    <X className="h-3 w-3" />
+                  </button>
+                </div>
+              ) : (
+                <select
+                  value={newBranchBase}
+                  onChange={(e) => setNewBranchBase(e.target.value)}
+                  className="bg-secondary rounded px-1.5 py-0.5 text-[11px] text-foreground border border-border"
+                  disabled={creating}
+                >
+                  <option value={repo.defaultBranch || "main"}>{repo.defaultBranch || "main"}</option>
+                  {repo.branches.map((b) => (
+                    <option key={b.id} value={b.name}>{b.name}</option>
+                  ))}
+                </select>
+              )}
             </div>
             {createError && (
               <p className="text-[11px] text-red-400">{createError}</p>

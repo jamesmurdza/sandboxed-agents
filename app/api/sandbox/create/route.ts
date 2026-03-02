@@ -13,6 +13,7 @@ export async function POST(req: Request) {
     repoName,
     baseBranch,
     newBranch,
+    startCommit,
   } = body
 
   if (!daytonaApiKey || !anthropicApiKey || !githubPat || !repoOwner || !repoName || !newBranch) {
@@ -66,6 +67,14 @@ export async function POST(req: Request) {
         send({ type: "progress", message: `Creating branch ${newBranch} from ${base}...` })
         await sandbox.git.createBranch(repoPath, newBranch)
         await sandbox.git.checkoutBranch(repoPath, newBranch)
+
+        // If starting from a specific commit, reset to it
+        if (startCommit) {
+          send({ type: "progress", message: `Resetting to commit ${startCommit.slice(0, 7)}...` })
+          await sandbox.process.executeCommand(
+            `cd ${repoPath} && git reset --hard ${startCommit} 2>&1`
+          )
+        }
 
         send({ type: "progress", message: "Installing Claude Agent SDK..." })
 
