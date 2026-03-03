@@ -1244,7 +1244,6 @@ export function ChatPanel({
         <DiffModal
           open={diffModalOpen}
           onClose={() => setDiffModalOpen(false)}
-          sandboxId={branch.sandboxId}
           repoOwner={repoOwner}
           repoName={repoName}
           branchName={branch.name}
@@ -1258,7 +1257,6 @@ export function ChatPanel({
         <DiffModal
           open={!!commitDiffHash}
           onClose={() => { setCommitDiffHash(null); setCommitDiffMessage(null) }}
-          sandboxId={branch.sandboxId}
           repoOwner={repoOwner}
           repoName={repoName}
           branchName={branch.name}

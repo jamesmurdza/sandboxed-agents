@@ -108,7 +108,6 @@ function parseDiff(raw: string): DiffFile[] {
 interface DiffModalProps {
   open: boolean
   onClose: () => void
-  sandboxId: string
   repoOwner: string
   repoName: string
   branchName: string
@@ -118,7 +117,7 @@ interface DiffModalProps {
   commitMessage?: string | null
 }
 
-export function DiffModal({ open, onClose, sandboxId, repoOwner, repoName, branchName, baseBranch, settings, commitHash, commitMessage }: DiffModalProps) {
+export function DiffModal({ open, onClose, repoOwner, repoName, branchName, baseBranch, settings, commitHash, commitMessage }: DiffModalProps) {
   const [branches, setBranches] = useState<string[]>([])
   const [compareBranch, setCompareBranch] = useState(baseBranch)
   const [diff, setDiff] = useState("")
@@ -130,17 +129,9 @@ export function DiffModal({ open, onClose, sandboxId, repoOwner, repoName, branc
   const fetchBranches = useCallback(async () => {
     setBranchesLoading(true)
     try {
-      const res = await fetch("/api/sandbox/git", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          daytonaApiKey: settings.daytonaApiKey,
-          sandboxId,
-          repoPath: `/home/daytona/${repoName}`,
-          action: "list-branches",
-          githubPat: settings.githubPat,
-        }),
-      })
+      const res = await fetch(
+        `/api/github/branches?token=${encodeURIComponent(settings.githubPat)}&owner=${encodeURIComponent(repoOwner)}&repo=${encodeURIComponent(repoName)}`
+      )
       const data = await res.json()
       const brList = (data.branches || []).filter((b: string) => b !== branchName)
       setBranches(brList)
@@ -152,7 +143,7 @@ export function DiffModal({ open, onClose, sandboxId, repoOwner, repoName, branc
     } finally {
       setBranchesLoading(false)
     }
-  }, [sandboxId, repoName, branchName, baseBranch, settings.daytonaApiKey, settings.githubPat, compareBranch])
+  }, [repoOwner, repoName, branchName, baseBranch, settings.githubPat, compareBranch])
 
   const fetchDiff = useCallback(async () => {
     if (!compareBranch) return
