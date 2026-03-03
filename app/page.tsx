@@ -232,8 +232,12 @@ export default function Home() {
           branches: r.branches.map((b) => {
             if (b.id !== branchId) return b
             const msgs = [...b.messages]
-            if (msgs.length > 0) {
-              msgs[msgs.length - 1] = { ...msgs[msgs.length - 1], ...updates }
+            // Find last non-commit-pill message
+            for (let i = msgs.length - 1; i >= 0; i--) {
+              if (!msgs[i].commitHash) {
+                msgs[i] = { ...msgs[i], ...updates }
+                break
+              }
             }
             return { ...b, messages: msgs }
           }),

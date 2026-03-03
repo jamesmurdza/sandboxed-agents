@@ -338,6 +338,7 @@ export function ChatPanel({
     let content = ""
     let toolCalls: ToolCall[] = []
     let hadToolCalls = false
+    let needsNewBubble = false
 
     function startNewBubble() {
       content = ""
@@ -351,6 +352,43 @@ export function ChatPanel({
         timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
       }
       onAddMessage(newMsg)
+    }
+
+    // Check for new commits inline (fire-and-forget)
+    function checkForNewCommits() {
+      if (!branch.sandboxId) return
+      fetch("/api/sandbox/git", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          daytonaApiKey: settings.daytonaApiKey,
+          sandboxId: branch.sandboxId,
+          repoPath: `/home/daytona/${repoName}`,
+          action: "log",
+        }),
+      })
+        .then((r) => r.json())
+        .then((logData) => {
+          const allCommits: { shortHash: string; message: string }[] = logData.commits || []
+          const chatCommits = new Set(branch.messages.filter((m) => m.commitHash).map((m) => m.commitHash))
+          const newCommits = allCommits.filter((c) => !knownCommitsRef.current.has(c.shortHash) && !chatCommits.has(c.shortHash))
+          for (const c of [...newCommits].reverse()) {
+            knownCommitsRef.current.add(c.shortHash)
+            onAddMessage({
+              id: generateId(),
+              role: "assistant",
+              content: "",
+              timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+              commitHash: c.shortHash,
+              commitMessage: c.message,
+            })
+          }
+          if (newCommits.length > 0) {
+            onCommitsDetected?.()
+            needsNewBubble = true
+          }
+        })
+        .catch(() => {})
     }
 
     try {
@@ -396,6 +434,11 @@ export function ChatPanel({
               if (data.type === "stdout" || data.type === "stderr") {
                 const text = data.content as string
                 if (text.startsWith("TOOL_USE:")) {
+                  // Start fresh bubble if commits were inserted since last tool call
+                  if (needsNewBubble) {
+                    startNewBubble()
+                    needsNewBubble = false
+                  }
                   const toolSummary = text.replace("TOOL_USE:", "").trim()
                   const toolName = toolSummary.split(":")[0].trim()
                   toolCalls = [
@@ -411,10 +454,15 @@ export function ChatPanel({
                     },
                   ]
                   hadToolCalls = true
+                  // Detect git commit tool calls and check for new commits inline
+                  if (toolName === "Bash" && /git\s+commit/.test(toolSummary)) {
+                    checkForNewCommits()
+                  }
                 } else {
-                  // If text arrives after tool calls, start a new bubble
-                  if (hadToolCalls && text.trim()) {
+                  // If text arrives after tool calls or commits were inserted, start a new bubble
+                  if ((hadToolCalls || needsNewBubble) && text.trim()) {
                     startNewBubble()
+                    needsNewBubble = false
                   }
                   content += text
                 }
