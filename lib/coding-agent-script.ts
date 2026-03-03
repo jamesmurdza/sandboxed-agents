@@ -44,7 +44,7 @@ Replace {port} with the actual port number. For example, if you start a server o
 resume_session = os.environ.get('RESUME_SESSION_ID', '')
 opts = ClaudeAgentOptions(
     allowed_tools=["Read", "Edit", "Write", "Glob", "Grep", "Bash"],
-    permission_mode="acceptEdits",
+    permission_mode="bypassPermissions",
     system_prompt=system_prompt,
 )
 if resume_session:
