@@ -97,6 +97,10 @@ export function RepoSidebar({
               <button
                 onClick={(e) => {
                   e.stopPropagation()
+                  if (repo.branches.length === 0) {
+                    onRemoveRepo(repo.id)
+                    return
+                  }
                   setRemoveModalRepo(repo)
                 }}
                 className="absolute -right-1 -top-1 flex h-4 w-4 cursor-pointer items-center justify-center rounded-full border border-border bg-card text-muted-foreground transition-all z-10 opacity-0 group-hover:opacity-100 hover:text-red-400"
