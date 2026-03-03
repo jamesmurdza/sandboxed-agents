@@ -103,7 +103,7 @@ export function RepoSidebar({
                   }
                   setRemoveModalRepo(repo)
                 }}
-                className="absolute -right-1 -top-1 flex h-4 w-4 cursor-pointer items-center justify-center rounded-full border border-border bg-card text-muted-foreground transition-all z-10 opacity-0 group-hover:opacity-100 hover:text-red-400"
+                className="absolute -right-1 -top-1 flex h-4 w-4 cursor-pointer items-center justify-center rounded-full border border-border bg-card text-muted-foreground transition-all z-10 opacity-0 group-hover:opacity-100 hover:text-foreground"
               >
                 <X className="h-2.5 w-2.5" />
               </button>
