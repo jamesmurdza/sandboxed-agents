@@ -469,7 +469,9 @@ export function ChatPanel({
           })
           const logData = await logRes.json()
           const allCommits: { shortHash: string; message: string }[] = logData.commits || []
-          const newCommits = allCommits.filter((c) => !knownCommitsRef.current.has(c.shortHash))
+          // Also check commits already rendered in the chat to avoid duplicates
+          const chatCommits = new Set(branch.messages.filter((m) => m.commitHash).map((m) => m.commitHash))
+          const newCommits = allCommits.filter((c) => !knownCommitsRef.current.has(c.shortHash) && !chatCommits.has(c.shortHash))
           // Insert oldest-first so they appear chronologically
           for (const c of [...newCommits].reverse()) {
             knownCommitsRef.current.add(c.shortHash)
