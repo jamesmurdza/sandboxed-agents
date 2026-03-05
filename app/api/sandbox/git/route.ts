@@ -1,10 +1,37 @@
 import { ensureSandboxStarted } from "@/lib/sandbox-resume"
+import type { Sandbox } from "@daytonaio/sdk"
 
 export const maxDuration = 60
 
+/**
+ * Ensures we're on the correct branch before pushing.
+ * This prevents agents from accidentally pushing to a wrong branch if they changed branches.
+ * Returns an error message if branch verification fails, or null if successful.
+ */
+async function ensureCorrectBranch(
+  sandbox: Sandbox,
+  repoPath: string,
+  expectedBranch: string
+): Promise<string | null> {
+  // First, checkout the expected branch
+  try {
+    await sandbox.git.checkoutBranch(repoPath, expectedBranch)
+  } catch (err) {
+    return `Failed to checkout branch ${expectedBranch}: ${err instanceof Error ? err.message : "Unknown error"}`
+  }
+
+  // Verify we're on the correct branch using git status
+  const status = await sandbox.git.status(repoPath)
+  if (status.currentBranch !== expectedBranch) {
+    return `Branch mismatch: expected ${expectedBranch} but on ${status.currentBranch}`
+  }
+
+  return null
+}
+
 export async function POST(req: Request) {
   const body = await req.json()
-  const { daytonaApiKey, sandboxId, repoPath, action, githubPat, targetBranch, currentBranch, repoOwner, repoApiName, tagName } = body
+  const { daytonaApiKey, sandboxId, repoPath, action, githubPat, targetBranch, currentBranch, repoOwner, repoApiName, tagName, branchName } = body
 
   if (!daytonaApiKey || !sandboxId || !repoPath || !action) {
     return Response.json({ error: "Missing required fields" }, { status: 400 })
@@ -51,6 +78,14 @@ export async function POST(req: Request) {
         if (!githubPat) {
           return Response.json({ error: "GitHub PAT required for push" }, { status: 400 })
         }
+        if (!branchName) {
+          return Response.json({ error: "Branch name required for push" }, { status: 400 })
+        }
+        // Ensure we're on the correct branch before any operations
+        const branchError = await ensureCorrectBranch(sandbox, repoPath, branchName)
+        if (branchError) {
+          return Response.json({ error: branchError }, { status: 400 })
+        }
         // Check for uncommitted changes and commit them if any
         let committed = false
         const statusResult = await sandbox.process.executeCommand(
@@ -65,6 +100,11 @@ export async function POST(req: Request) {
           }
           committed = true
         }
+        // Double-check we're still on the correct branch before pushing
+        const verifyStatus = await sandbox.git.status(repoPath)
+        if (verifyStatus.currentBranch !== branchName) {
+          return Response.json({ error: `Branch changed during operation: expected ${branchName} but on ${verifyStatus.currentBranch}` }, { status: 400 })
+        }
         // Always push — covers agent-made commits AND new branches with no upstream.
         // Daytona SDK push is safe to call even if there's nothing new to push.
         await sandbox.git.push(repoPath, "x-access-token", githubPat)
@@ -74,6 +114,19 @@ export async function POST(req: Request) {
       case "push": {
         if (!githubPat) {
           return Response.json({ error: "GitHub PAT required for push" }, { status: 400 })
+        }
+        if (!branchName) {
+          return Response.json({ error: "Branch name required for push" }, { status: 400 })
+        }
+        // Ensure we're on the correct branch before pushing
+        const pushBranchError = await ensureCorrectBranch(sandbox, repoPath, branchName)
+        if (pushBranchError) {
+          return Response.json({ error: pushBranchError }, { status: 400 })
+        }
+        // Double-check before push
+        const pushVerifyStatus = await sandbox.git.status(repoPath)
+        if (pushVerifyStatus.currentBranch !== branchName) {
+          return Response.json({ error: `Branch mismatch: expected ${branchName} but on ${pushVerifyStatus.currentBranch}` }, { status: 400 })
         }
         await sandbox.git.push(repoPath, "x-access-token", githubPat)
         return Response.json({ success: true })
@@ -134,12 +187,16 @@ export async function POST(req: Request) {
         if (!githubPat || !targetBranch || !currentBranch) {
           return Response.json({ error: "Missing required fields for merge" }, { status: 400 })
         }
-        // Checkout target branch
-        const coTarget = await sandbox.process.executeCommand(
-          `cd ${repoPath} && git checkout ${targetBranch} 2>&1`
-        )
-        if (coTarget.exitCode) {
-          return Response.json({ error: "Failed to checkout target: " + coTarget.result }, { status: 500 })
+        // Use SDK to checkout target branch (safer than git command)
+        try {
+          await sandbox.git.checkoutBranch(repoPath, targetBranch)
+        } catch (err) {
+          return Response.json({ error: "Failed to checkout target: " + (err instanceof Error ? err.message : "Unknown error") }, { status: 500 })
+        }
+        // Verify we're on target branch
+        const mergeCheckStatus = await sandbox.git.status(repoPath)
+        if (mergeCheckStatus.currentBranch !== targetBranch) {
+          return Response.json({ error: `Branch mismatch: expected ${targetBranch} but on ${mergeCheckStatus.currentBranch}` }, { status: 400 })
         }
         // Pull latest on target via Daytona SDK
         try {
@@ -154,13 +211,18 @@ export async function POST(req: Request) {
         if (mergeResult.exitCode) {
           // Abort the merge on conflict
           await sandbox.process.executeCommand(`cd ${repoPath} && git merge --abort 2>&1`)
-          await sandbox.process.executeCommand(`cd ${repoPath} && git checkout ${currentBranch} 2>&1`)
+          await sandbox.git.checkoutBranch(repoPath, currentBranch)
           return Response.json({ error: "Merge conflict: " + mergeResult.result }, { status: 409 })
+        }
+        // Double-check we're on target branch before pushing
+        const mergeVerifyStatus = await sandbox.git.status(repoPath)
+        if (mergeVerifyStatus.currentBranch !== targetBranch) {
+          return Response.json({ error: `Branch changed during merge: expected ${targetBranch} but on ${mergeVerifyStatus.currentBranch}` }, { status: 400 })
         }
         // Push the merged target
         await sandbox.git.push(repoPath, "x-access-token", githubPat)
         // Switch back to current branch
-        await sandbox.process.executeCommand(`cd ${repoPath} && git checkout ${currentBranch} 2>&1`)
+        await sandbox.git.checkoutBranch(repoPath, currentBranch)
         return Response.json({ success: true })
       }
 
@@ -298,6 +360,11 @@ export async function POST(req: Request) {
         if (!currentBranch || !newName) {
           return Response.json({ error: "Missing required fields for rename" }, { status: 400 })
         }
+        // First ensure we're on the branch we're renaming
+        const renameBranchError = await ensureCorrectBranch(sandbox, repoPath, currentBranch)
+        if (renameBranchError) {
+          return Response.json({ error: renameBranchError }, { status: 400 })
+        }
         const renameResult = await sandbox.process.executeCommand(
           `cd ${repoPath} && git branch -m ${currentBranch} ${newName} 2>&1`
         )
@@ -306,6 +373,11 @@ export async function POST(req: Request) {
         }
         // Push new branch name and delete old remote branch
         if (githubPat) {
+          // Verify we're on the newly renamed branch before pushing
+          const renameVerifyStatus = await sandbox.git.status(repoPath)
+          if (renameVerifyStatus.currentBranch !== newName) {
+            return Response.json({ error: `Branch mismatch after rename: expected ${newName} but on ${renameVerifyStatus.currentBranch}` }, { status: 400 })
+          }
           await sandbox.git.push(repoPath, "x-access-token", githubPat)
           // Delete old remote branch (best effort)
           if (repoOwner && repoApiName) {

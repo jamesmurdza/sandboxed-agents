@@ -498,6 +498,7 @@ export function ChatPanel({
               repoPath: `/home/daytona/${repoName}`,
               action: "auto-commit-push",
               githubPat: settings.githubPat,
+              branchName: branch.name,
             }),
           })
         } catch {}
