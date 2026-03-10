@@ -267,7 +267,10 @@ export function ChatPanel({
   // Populate baseline known commits on mount / branch change
   useEffect(() => {
     if (!branch.sandboxId) return
-    knownCommitsRef.current = new Set()
+    // Initialize from already-displayed commits (sync, no race condition)
+    const existingCommits = branch.messages.filter((m) => m.commitHash).map((m) => m.commitHash!)
+    knownCommitsRef.current = new Set(existingCommits)
+    // Then fetch and add all current repo commits
     fetch("/api/sandbox/git", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -281,7 +284,9 @@ export function ChatPanel({
       .then((r) => r.json())
       .then((data) => {
         const commits = data.commits || []
-        knownCommitsRef.current = new Set(commits.map((c: { shortHash: string }) => c.shortHash))
+        for (const c of commits) {
+          knownCommitsRef.current.add(c.shortHash)
+        }
       })
       .catch(() => {})
   }, [branch.id, branch.sandboxId, settings.daytonaApiKey, repoName])
