@@ -988,10 +988,10 @@ export function ChatPanel({
 
   return (
     <TooltipProvider delayDuration={0}>
-      <div className="flex min-w-0 flex-1 flex-col bg-background">
+      <div className="flex min-w-0 flex-1 flex-col bg-background overflow-hidden">
         {/* Header */}
         <header className={cn(
-          "flex items-center gap-2 border-b border-border",
+          "flex shrink-0 items-center gap-2 border-b border-border",
           isMobile ? "px-2 py-2" : "px-3 py-2.5 sm:px-4"
         )}>
           {/* Branch name section - hidden on mobile since it's in the parent header */}
@@ -1187,7 +1187,7 @@ export function ChatPanel({
 
         {/* Messages */}
         <div ref={scrollRef} onScroll={handleScroll} className={cn(
-          "flex-1 overflow-y-auto py-4",
+          "flex-1 min-h-0 overflow-y-auto py-4",
           isMobile ? "px-3" : "px-3 py-6 sm:px-6"
         )}>
           {branch.status === "creating" ? (
@@ -1233,7 +1233,7 @@ export function ChatPanel({
 
         {/* Input */}
         <div className={cn(
-          "border-t border-border py-3",
+          "shrink-0 border-t border-border py-3",
           isMobile ? "px-3" : "px-3 sm:px-6"
         )}>
           <div className="flex items-end gap-2 rounded-lg border border-border bg-card px-3 py-2 focus-within:border-primary/50 focus-within:ring-1 focus-within:ring-primary/20">
