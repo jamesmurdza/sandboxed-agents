@@ -324,12 +324,14 @@ export function ChatPanel({
     }
   }, [input])
 
-  // Save draft prompt to branch
+  // Save draft prompt to branch (only after branch is created in database)
   useEffect(() => {
+    // Skip draft saving while branch is being created (not yet in database)
+    if (branch.status === "creating") return
     if (input !== (branch.draftPrompt ?? "")) {
       onUpdateBranch({ draftPrompt: input })
     }
-  }, [input, branch.draftPrompt, onUpdateBranch])
+  }, [input, branch.draftPrompt, branch.status, onUpdateBranch])
 
   const handleSend = useCallback(async () => {
     const prompt = input.trim()
