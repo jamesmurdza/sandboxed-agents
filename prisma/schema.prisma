@@ -145,6 +145,7 @@ model Message {
   role          String // "user" | "assistant"
   content       String  @db.Text
   toolCalls     Json?
+  contentBlocks Json?   // Interleaved text and tool calls in order
   timestamp     String?
   commitHash    String?
   commitMessage String?

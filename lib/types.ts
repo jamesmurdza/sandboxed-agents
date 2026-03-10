@@ -7,11 +7,25 @@ export interface ToolCall {
   timestamp: string
 }
 
+// Content block types for interleaved rendering
+export interface TextContentBlock {
+  type: "text"
+  text: string
+}
+
+export interface ToolCallContentBlock {
+  type: "tool_calls"
+  toolCalls: ToolCall[]
+}
+
+export type ContentBlock = TextContentBlock | ToolCallContentBlock
+
 export interface Message {
   id: string
   role: "user" | "assistant"
   content: string
   toolCalls?: ToolCall[]
+  contentBlocks?: ContentBlock[]  // Interleaved text and tool calls in order
   timestamp: string
   commitHash?: string
   commitMessage?: string

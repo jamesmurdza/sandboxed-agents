@@ -1,7 +1,7 @@
 "use client"
 
 import { cn } from "@/lib/utils"
-import type { Branch, Message, ToolCall } from "@/lib/types"
+import type { Branch, Message, ToolCall, ContentBlock } from "@/lib/types"
 import { agentLabels } from "@/lib/types"
 import { generateId } from "@/lib/store"
 import {
@@ -99,6 +99,24 @@ function ToolCallTimeline({ toolCalls }: { toolCalls: ToolCall[] }) {
   )
 }
 
+// Render a text block with markdown
+function TextBlockContent({ text }: { text: string }) {
+  return (
+    <div className="rounded-lg px-4 py-2.5 text-sm leading-relaxed bg-secondary/60 text-foreground prose dark:prose-invert prose-sm max-w-none prose-p:my-1 prose-pre:my-2 prose-pre:bg-background/50 prose-pre:text-xs prose-code:text-xs prose-code:bg-background/50 prose-code:px-1 prose-code:py-0.5 prose-code:rounded prose-headings:my-2 prose-ul:my-1 prose-ol:my-1 prose-li:my-0">
+      <Markdown
+        remarkPlugins={[remarkGfm]}
+        components={{
+          a: ({ href, children }) => (
+            <a href={href} target="_blank" rel="noopener noreferrer">
+              {children}
+            </a>
+          ),
+        }}
+      >{text}</Markdown>
+    </div>
+  )
+}
+
 function MessageBubble({ message, onCommitClick, onBranchFromCommit }: { message: Message; onCommitClick?: (hash: string, msg: string) => void; onBranchFromCommit?: (hash: string) => void }) {
   const isUser = message.role === "user"
 
@@ -130,6 +148,9 @@ function MessageBubble({ message, onCommitClick, onBranchFromCommit }: { message
     )
   }
 
+  // Check if we have interleaved content blocks
+  const hasContentBlocks = message.contentBlocks && message.contentBlocks.length > 0
+
   return (
     <div className="flex flex-col">
       <div className="flex items-center gap-2 mb-1">
@@ -147,38 +168,61 @@ function MessageBubble({ message, onCommitClick, onBranchFromCommit }: { message
         <span className="text-[10px] text-muted-foreground/40">{message.timestamp}</span>
       </div>
 
-      <div
-        className={cn(
-          "rounded-lg px-4 py-2.5 text-sm leading-relaxed",
-          isUser
-            ? "bg-primary/15 text-foreground whitespace-pre-wrap"
-            : "bg-secondary/60 text-foreground prose dark:prose-invert prose-sm max-w-none prose-p:my-1 prose-pre:my-2 prose-pre:bg-background/50 prose-pre:text-xs prose-code:text-xs prose-code:bg-background/50 prose-code:px-1 prose-code:py-0.5 prose-code:rounded prose-headings:my-2 prose-ul:my-1 prose-ol:my-1 prose-li:my-0"
-        )}
-      >
-        {message.content ? (
-          isUser ? (
-            message.content
-          ) : (
-            <Markdown
-              remarkPlugins={[remarkGfm]}
-              components={{
-                a: ({ href, children }) => (
-                  <a href={href} target="_blank" rel="noopener noreferrer">
-                    {children}
-                  </a>
-                ),
-              }}
-            >{message.content}</Markdown>
-          )
-        ) : (
-          message.role === "assistant" && (
-            <span className="text-muted-foreground/50 italic">Thinking...</span>
-          )
-        )}
-      </div>
+      {/* Render interleaved content blocks if available */}
+      {hasContentBlocks ? (
+        <div className="flex flex-col gap-1">
+          {message.contentBlocks!.map((block, idx) => {
+            if (block.type === "text") {
+              return <TextBlockContent key={idx} text={block.text} />
+            } else if (block.type === "tool_calls") {
+              // Add IDs to tool calls for rendering
+              const toolCallsWithIds = block.toolCalls.map((tc, tcIdx) => ({
+                ...tc,
+                id: tc.id || `tc-${idx}-${tcIdx}`,
+                timestamp: tc.timestamp || "",
+              }))
+              return <ToolCallTimeline key={idx} toolCalls={toolCallsWithIds} />
+            }
+            return null
+          })}
+        </div>
+      ) : (
+        /* Fallback: render content then tool calls (legacy behavior) */
+        <>
+          <div
+            className={cn(
+              "rounded-lg px-4 py-2.5 text-sm leading-relaxed",
+              isUser
+                ? "bg-primary/15 text-foreground whitespace-pre-wrap"
+                : "bg-secondary/60 text-foreground prose dark:prose-invert prose-sm max-w-none prose-p:my-1 prose-pre:my-2 prose-pre:bg-background/50 prose-pre:text-xs prose-code:text-xs prose-code:bg-background/50 prose-code:px-1 prose-code:py-0.5 prose-code:rounded prose-headings:my-2 prose-ul:my-1 prose-ol:my-1 prose-li:my-0"
+            )}
+          >
+            {message.content ? (
+              isUser ? (
+                message.content
+              ) : (
+                <Markdown
+                  remarkPlugins={[remarkGfm]}
+                  components={{
+                    a: ({ href, children }) => (
+                      <a href={href} target="_blank" rel="noopener noreferrer">
+                        {children}
+                      </a>
+                    ),
+                  }}
+                >{message.content}</Markdown>
+              )
+            ) : (
+              message.role === "assistant" && (
+                <span className="text-muted-foreground/50 italic">Thinking...</span>
+              )
+            )}
+          </div>
 
-      {message.toolCalls && message.toolCalls.length > 0 && (
-        <ToolCallTimeline toolCalls={message.toolCalls} />
+          {message.toolCalls && message.toolCalls.length > 0 && (
+            <ToolCallTimeline toolCalls={message.toolCalls} />
+          )}
+        </>
       )}
     </div>
   )
@@ -405,16 +449,32 @@ export function ChatPanel({
         }
 
         // Update message content
-        if (data.content || (data.toolCalls && data.toolCalls.length > 0)) {
+        if (data.content || (data.toolCalls && data.toolCalls.length > 0) || (data.contentBlocks && data.contentBlocks.length > 0)) {
           const toolCallsWithIds = (data.toolCalls || []).map((tc: { tool: string; summary: string }, idx: number) => ({
             id: `tc-${idx}`,
             tool: tc.tool,
             summary: tc.summary,
             timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
           }))
+          // Process contentBlocks with IDs for tool calls
+          const contentBlocksWithIds = (data.contentBlocks || []).map((block: { type: string; text?: string; toolCalls?: Array<{ tool: string; summary: string }> }, blockIdx: number) => {
+            if (block.type === "tool_calls" && block.toolCalls) {
+              return {
+                type: "tool_calls" as const,
+                toolCalls: block.toolCalls.map((tc, tcIdx) => ({
+                  id: `tc-${blockIdx}-${tcIdx}`,
+                  tool: tc.tool,
+                  summary: tc.summary,
+                  timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+                })),
+              }
+            }
+            return block
+          })
           onUpdateMessage(messageId, {
             content: data.content || "",
             toolCalls: toolCallsWithIds,
+            contentBlocks: contentBlocksWithIds.length > 0 ? contentBlocksWithIds : undefined,
           })
         }
 
