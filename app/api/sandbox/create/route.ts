@@ -151,6 +151,7 @@ export async function POST(req: Request) {
           `cd ${repoPath} && git log -1 --format='%h' 2>&1`
         )
         const headCommit = headResult.exitCode ? null : headResult.result.trim()
+        console.log("[sandbox-create] Captured headCommit:", headCommit, "exitCode:", headResult.exitCode)
 
         send({ type: "progress", message: "Installing Claude Agent SDK..." })
 
@@ -246,6 +247,7 @@ export async function POST(req: Request) {
           },
         })
 
+        console.log("[sandbox-create] Sending done event with startCommit:", headCommit)
         send({
           type: "done",
           sandboxId: sandbox.id,
@@ -253,6 +255,7 @@ export async function POST(req: Request) {
           previewUrlPattern,
           branchId: branchRecord.id,
           repoId: dbRepo.id,
+          startCommit: headCommit,
         })
       } catch (error: unknown) {
         const message = error instanceof Error ? error.message : "Unknown error"

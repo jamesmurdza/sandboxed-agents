@@ -345,6 +345,7 @@ export function BranchList({
             try {
               const data = JSON.parse(line.slice(6))
               if (data.type === "done") {
+                console.log("[branch-list] Received done event, startCommit:", data.startCommit)
                 hasTerminalEvent = true
                 // Use server-side branchId to replace the temporary client-side ID
                 onUpdateBranch(branchId, {
@@ -353,6 +354,7 @@ export function BranchList({
                   sandboxId: data.sandboxId,
                   contextId: data.contextId,
                   previewUrlPattern: data.previewUrlPattern,
+                  startCommit: data.startCommit,
                 })
                 // Refresh quota now that sandbox is created in database
                 onQuotaRefresh?.()
