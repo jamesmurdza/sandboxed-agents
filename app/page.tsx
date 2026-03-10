@@ -153,9 +153,19 @@ export default function Home() {
   useEffect(() => {
     if (status !== "authenticated") return
 
-    fetch("/api/user/me")
+    fetch("/api/user/me", { cache: "no-store" })
       .then((r) => r.json())
       .then((data) => {
+        // Debug: log message counts from API
+        if (data.repos) {
+          for (const repo of data.repos) {
+            for (const branch of repo.branches) {
+              if (branch.messages?.length > 0) {
+                console.log(`[API] Branch "${branch.name}" has ${branch.messages.length} messages`)
+              }
+            }
+          }
+        }
         if (data.repos) {
           const transformedRepos = data.repos.map(transformRepo)
           setRepos(transformedRepos)
