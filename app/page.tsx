@@ -110,10 +110,29 @@ export default function Home() {
   const [credentials, setCredentials] = useState<UserCredentials | null>(null)
   const [loaded, setLoaded] = useState(false)
 
-  const [activeRepoId, setActiveRepoId] = useState<string | null>(null)
-  const [activeBranchId, setActiveBranchId] = useState<string | null>(null)
+  // Initialize from localStorage to preserve selection across page reloads
+  const [activeRepoId, setActiveRepoId] = useState<string | null>(() => {
+    if (typeof window === "undefined") return null
+    return localStorage.getItem("activeRepoId")
+  })
+  const [activeBranchId, setActiveBranchId] = useState<string | null>(() => {
+    if (typeof window === "undefined") return null
+    return localStorage.getItem("activeBranchId")
+  })
   const activeBranchIdRef = useRef(activeBranchId)
   activeBranchIdRef.current = activeBranchId
+
+  // Persist active IDs to localStorage
+  useEffect(() => {
+    if (activeRepoId) {
+      localStorage.setItem("activeRepoId", activeRepoId)
+    }
+  }, [activeRepoId])
+  useEffect(() => {
+    if (activeBranchId) {
+      localStorage.setItem("activeBranchId", activeBranchId)
+    }
+  }, [activeBranchId])
 
   const [mobileView, setMobileView] = useState<"branches" | "chat">("branches")
   const [branchListWidth, setBranchListWidth] = useState(260)
@@ -155,15 +174,29 @@ export default function Home() {
       })
   }, [status])
 
-  // Auto-select first repo on load
+  // Auto-select repo/branch on load - validate stored IDs or fall back to first
   useEffect(() => {
-    if (loaded && repos.length > 0 && !activeRepoId) {
+    if (!loaded || repos.length === 0) return
+
+    // Check if stored activeRepoId is valid
+    const storedRepo = activeRepoId ? repos.find((r) => r.id === activeRepoId) : null
+    if (storedRepo) {
+      // Repo is valid, check if stored branch is also valid
+      const storedBranch = activeBranchId
+        ? storedRepo.branches.find((b) => b.id === activeBranchId)
+        : null
+      if (!storedBranch && storedRepo.branches.length > 0) {
+        // Branch not found, select first branch of this repo
+        setActiveBranchId(storedRepo.branches[0].id)
+      }
+    } else {
+      // Repo not found, fall back to first repo and branch
       setActiveRepoId(repos[0].id)
       if (repos[0].branches.length > 0) {
         setActiveBranchId(repos[0].branches[0].id)
       }
     }
-  }, [loaded, repos, activeRepoId])
+  }, [loaded, repos, activeRepoId, activeBranchId])
 
   // Dynamic page title with agent counts
   useEffect(() => {

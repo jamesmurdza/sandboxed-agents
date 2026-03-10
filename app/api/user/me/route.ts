@@ -29,6 +29,7 @@ export async function GET() {
                 orderBy: { createdAt: "asc" },
               },
             },
+            orderBy: { updatedAt: "desc" }, // Most recently active branches first
           },
         },
         orderBy: { createdAt: "desc" },
