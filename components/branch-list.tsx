@@ -242,9 +242,14 @@ export function BranchList({
       setCreateError("Branch name contains invalid sequence")
       return
     }
-    // Check for duplicates
+    // Check for duplicates in local branches
     if (repo.branches.some((b) => b.name === branchName)) {
       setCreateError("A branch with this name already exists")
+      return
+    }
+    // Check for duplicates in GitHub remote branches
+    if (githubBranches.includes(branchName)) {
+      setCreateError("A branch with this name already exists on GitHub")
       return
     }
 
@@ -324,7 +329,7 @@ export function BranchList({
     } finally {
       setCreating(false)
     }
-  }, [newBranchName, newBranchBase, creating, repo, onAddBranch, onUpdateBranch, branchPlaceholder, startCommit])
+  }, [newBranchName, newBranchBase, creating, repo, onAddBranch, onUpdateBranch, branchPlaceholder, startCommit, githubBranches])
 
   return (
     <div className="relative flex h-full shrink-0 flex-col border-r border-border bg-card" style={{ width }}>
