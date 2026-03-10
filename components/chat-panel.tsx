@@ -201,8 +201,8 @@ interface ChatPanelProps {
   repoOwner: string
   gitHistoryOpen: boolean
   onToggleGitHistory: () => void
-  onAddMessage: (message: Message) => void
-  onUpdateLastMessage: (updates: Partial<Message>) => void
+  onAddMessage: (message: Message) => Promise<string>
+  onUpdateMessage: (messageId: string, updates: Partial<Message>) => void
   onUpdateBranch: (updates: Partial<Branch>) => void
   onForceSave: () => void
   onCommitsDetected?: () => void
@@ -217,7 +217,7 @@ export function ChatPanel({
   gitHistoryOpen,
   onToggleGitHistory,
   onAddMessage,
-  onUpdateLastMessage,
+  onUpdateMessage,
   onUpdateBranch,
   onForceSave,
   onCommitsDetected,
@@ -326,7 +326,7 @@ export function ChatPanel({
     // Set branch to running and clear draft
     onUpdateBranch({ status: "running", draftPrompt: "" })
 
-    // Add placeholder assistant message
+    // Add placeholder assistant message and get its DB ID
     const assistantMsg: Message = {
       id: generateId(),
       role: "assistant",
@@ -334,7 +334,7 @@ export function ChatPanel({
       toolCalls: [],
       timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
     }
-    onAddMessage(assistantMsg)
+    let currentMessageId = await onAddMessage(assistantMsg)
 
     // Stream the response
     const controller = new AbortController()
@@ -344,7 +344,7 @@ export function ChatPanel({
     let hadToolCalls = false
     let needsNewBubble = false
 
-    function startNewBubble() {
+    async function startNewBubble() {
       content = ""
       toolCalls = []
       hadToolCalls = false
@@ -355,7 +355,7 @@ export function ChatPanel({
         toolCalls: [],
         timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
       }
-      onAddMessage(newMsg)
+      currentMessageId = await onAddMessage(newMsg)
     }
 
     // Check for new commits inline (fire-and-forget)
@@ -435,7 +435,7 @@ export function ChatPanel({
                 if (text.startsWith("TOOL_USE:")) {
                   // Start fresh bubble if commits were inserted since last tool call
                   if (needsNewBubble) {
-                    startNewBubble()
+                    await startNewBubble()
                     needsNewBubble = false
                   }
                   const toolSummary = text.replace("TOOL_USE:", "").trim()
@@ -460,19 +460,19 @@ export function ChatPanel({
                 } else {
                   // If text arrives after tool calls or commits were inserted, start a new bubble
                   if ((hadToolCalls || needsNewBubble) && text.trim()) {
-                    startNewBubble()
+                    await startNewBubble()
                     needsNewBubble = false
                   }
                   content += text
                 }
-                onUpdateLastMessage({ content, toolCalls })
+                onUpdateMessage(currentMessageId, { content, toolCalls })
               } else if (data.type === "context-updated") {
                 onUpdateBranch({ contextId: data.contextId })
               } else if (data.type === "session-id") {
                 onUpdateBranch({ sessionId: data.sessionId })
               } else if (data.type === "error") {
                 content += content ? `\n\nError: ${data.message}` : `Error: ${data.message}`
-                onUpdateLastMessage({ content })
+                onUpdateMessage(currentMessageId, { content })
               }
             } catch {}
           }
@@ -481,11 +481,11 @@ export function ChatPanel({
     } catch (err: unknown) {
       if (err instanceof DOMException && err.name === "AbortError") {
         content += content ? "\n\n[Stopped by user]" : "[Stopped by user]"
-        onUpdateLastMessage({ content })
+        onUpdateMessage(currentMessageId, { content })
       } else {
         const message = err instanceof Error ? err.message : "Unknown error"
         content += content ? `\n\nError: ${message}` : `Error: ${message}`
-        onUpdateLastMessage({ content })
+        onUpdateMessage(currentMessageId, { content })
       }
     } finally {
       // Auto-commit and push any remaining changes
@@ -555,7 +555,7 @@ export function ChatPanel({
         osc.stop(ctx.currentTime + 0.3)
       } catch {}
     }
-  }, [input, branch, repoName, onAddMessage, onUpdateLastMessage, onUpdateBranch, onForceSave, onCommitsDetected])
+  }, [input, branch, repoName, onAddMessage, onUpdateMessage, onUpdateBranch, onForceSave, onCommitsDetected])
 
   function handleStop() {
     abortControllerRef.current?.abort()

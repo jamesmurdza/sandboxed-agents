@@ -326,8 +326,10 @@ export default function Home() {
       .catch(() => {})
   }, [activeRepo, activeBranchId])
 
-  const handleAddMessage = useCallback((branchId: string, message: Message) => {
-    if (!activeRepo) return
+  const handleAddMessage = useCallback(async (branchId: string, message: Message): Promise<string> => {
+    if (!activeRepo) return message.id
+
+    // Add message to local state immediately with temporary ID
     setRepos((prev) =>
       prev.map((r) => {
         if (r.id !== activeRepo.id) return r
@@ -344,26 +346,53 @@ export default function Home() {
       })
     )
 
-    // Save message to database
-    fetch("/api/branches/messages", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        branchId,
-        role: message.role,
-        content: message.content,
-        toolCalls: message.toolCalls,
-        timestamp: message.timestamp,
-        commitHash: message.commitHash,
-        commitMessage: message.commitMessage,
-      }),
-    }).catch(() => {})
+    // Save message to database and get the real DB ID
+    try {
+      const res = await fetch("/api/branches/messages", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          branchId,
+          role: message.role,
+          content: message.content,
+          toolCalls: message.toolCalls,
+          timestamp: message.timestamp,
+          commitHash: message.commitHash,
+          commitMessage: message.commitMessage,
+        }),
+      })
+      const data = await res.json()
+      const dbId = data.message?.id
+
+      if (dbId && dbId !== message.id) {
+        // Update local state with the real database ID
+        setRepos((prev) =>
+          prev.map((r) => {
+            if (r.id !== activeRepo.id) return r
+            return {
+              ...r,
+              branches: r.branches.map((b) => {
+                if (b.id !== branchId) return b
+                return {
+                  ...b,
+                  messages: b.messages.map((m) =>
+                    m.id === message.id ? { ...m, id: dbId } : m
+                  ),
+                }
+              }),
+            }
+          })
+        )
+        return dbId
+      }
+      return message.id
+    } catch {
+      return message.id
+    }
   }, [activeRepo])
 
-  const handleUpdateLastMessage = useCallback((branchId: string, updates: Partial<Message>) => {
+  const handleUpdateMessage = useCallback((branchId: string, messageId: string, updates: Partial<Message>) => {
     if (!activeRepo) return
-
-    let lastMessageId: string | null = null
 
     setRepos((prev) =>
       prev.map((r) => {
@@ -372,32 +401,27 @@ export default function Home() {
           ...r,
           branches: r.branches.map((b) => {
             if (b.id !== branchId) return b
-            const msgs = [...b.messages]
-            for (let i = msgs.length - 1; i >= 0; i--) {
-              if (!msgs[i].commitHash) {
-                lastMessageId = msgs[i].id
-                msgs[i] = { ...msgs[i], ...updates }
-                break
-              }
+            return {
+              ...b,
+              messages: b.messages.map((m) =>
+                m.id === messageId ? { ...m, ...updates } : m
+              ),
             }
-            return { ...b, messages: msgs }
           }),
         }
       })
     )
 
     // Update message in database
-    if (lastMessageId) {
-      fetch("/api/branches/messages", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          messageId: lastMessageId,
-          content: updates.content,
-          toolCalls: updates.toolCalls,
-        }),
-      }).catch(() => {})
-    }
+    fetch("/api/branches/messages", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        messageId,
+        content: updates.content,
+        toolCalls: updates.toolCalls,
+      }),
+    }).catch(() => {})
   }, [activeRepo])
 
   const handleCredentialsUpdate = useCallback(() => {
@@ -488,8 +512,8 @@ export default function Home() {
               gitHistoryOpen={gitHistoryOpen}
               onToggleGitHistory={() => setGitHistoryOpen((v) => !v)}
               onAddMessage={(msg) => handleAddMessage(activeBranch.id, msg)}
-              onUpdateLastMessage={(updates) =>
-                handleUpdateLastMessage(activeBranch.id, updates)
+              onUpdateMessage={(messageId, updates) =>
+                handleUpdateMessage(activeBranch.id, messageId, updates)
               }
               onUpdateBranch={(updates) =>
                 handleUpdateBranch(activeBranch.id, updates)
