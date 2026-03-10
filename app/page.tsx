@@ -40,6 +40,7 @@ interface DbBranch {
   startCommit: string | null
   status: string
   prUrl: string | null
+  draftPrompt: string | null
   sandbox: DbSandbox | null
   messages: DbMessage[]
 }
@@ -74,6 +75,7 @@ function transformBranch(dbBranch: DbBranch): Branch {
     startCommit: dbBranch.startCommit || undefined,
     status: dbBranch.status as Branch["status"],
     prUrl: dbBranch.prUrl || undefined,
+    draftPrompt: dbBranch.draftPrompt || undefined,
     sandboxId: dbBranch.sandbox?.sandboxId,
     contextId: dbBranch.sandbox?.contextId || undefined,
     sessionId: dbBranch.sandbox?.sessionId || undefined,
