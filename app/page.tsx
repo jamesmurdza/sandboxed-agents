@@ -600,9 +600,9 @@ export default function Home() {
 
         {/* Mobile: Chat Panel (fullscreen, shown when mobileView === "chat") */}
         {isMobile && mobileView === "chat" && (
-          <div className="flex min-w-0 flex-1 flex-col sm:hidden">
+          <div className="flex min-w-0 flex-1 flex-col sm:hidden overflow-hidden">
             {/* Mobile header with back button */}
-            <div className="flex items-center gap-2 border-b border-border bg-card px-3 py-2">
+            <div className="flex shrink-0 items-center gap-2 border-b border-border bg-card px-3 py-2">
               <button
                 onClick={() => setMobileView("branches")}
                 className="flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
@@ -626,7 +626,8 @@ export default function Home() {
               )}
             </div>
             {activeBranch && activeRepo ? (
-              <ChatPanel
+              <div className="flex flex-1 flex-col min-h-0 overflow-hidden">
+                <ChatPanel
                 branch={activeBranch}
                 repoFullName={`${activeRepo.owner}/${activeRepo.name}`}
                 repoName={activeRepo.name}
@@ -646,6 +647,7 @@ export default function Home() {
                 onBranchFromCommit={(hash) => setPendingStartCommit(hash)}
                 isMobile={true}
               />
+              </div>
             ) : (
               <EmptyChatPanel hasRepos={repos.length > 0} />
             )}
