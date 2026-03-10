@@ -206,9 +206,9 @@ export function AddRepoModal({ open, onClose, githubUser, existingRepos, onAddRe
   // Fork confirmation view
   if (forkPrompt) {
     return (
-      <div className="fixed inset-0 z-50 flex items-center justify-center">
+      <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
         <div className="absolute inset-0 bg-background/80 backdrop-blur-sm" onClick={onClose} />
-        <div className="relative z-10 flex w-full max-w-md flex-col rounded-xl border border-border bg-card shadow-2xl overflow-hidden">
+        <div className="relative z-10 flex w-full max-w-md flex-col rounded-xl border border-border bg-card shadow-2xl overflow-hidden max-h-[90vh]">
           <div className="flex items-center justify-between border-b border-border px-5 py-4">
             <div className="flex items-center gap-2">
               <GitFork className="h-4 w-4 text-muted-foreground" />
@@ -247,10 +247,10 @@ export function AddRepoModal({ open, onClose, githubUser, existingRepos, onAddRe
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
       <div className="absolute inset-0 bg-background/80 backdrop-blur-sm" onClick={onClose} />
-      <div className="relative z-10 flex w-full max-w-md flex-col rounded-xl border border-border bg-card shadow-2xl overflow-hidden">
-        <div className="flex items-center justify-between border-b border-border px-5 py-4">
+      <div className="relative z-10 flex w-full max-w-md flex-col rounded-xl border border-border bg-card shadow-2xl overflow-hidden max-h-[90vh]">
+        <div className="flex items-center justify-between border-b border-border px-4 sm:px-5 py-4">
           <div className="flex items-center gap-2">
             <Github className="h-4 w-4 text-muted-foreground" />
             <h2 className="text-sm font-semibold text-foreground">Add Repository</h2>

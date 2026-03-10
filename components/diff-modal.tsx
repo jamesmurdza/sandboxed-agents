@@ -210,14 +210,14 @@ export function DiffModal({ open, onClose, repoOwner, repoName, branchName, base
 
   return (
     <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="sm:max-w-3xl max-h-[80vh] flex flex-col">
+      <DialogContent className="sm:max-w-3xl max-h-[85vh] flex flex-col overflow-hidden">
         <DialogHeader>
-          <div className="flex items-center gap-3">
+          <div className="flex flex-wrap items-center gap-2 sm:gap-3">
             <DialogTitle className="text-sm">Diff</DialogTitle>
             {isCommitMode ? (
               <>
                 <code className="rounded bg-accent px-1.5 py-0.5 text-xs font-mono text-primary/70">{commitHash}</code>
-                {commitMessage && <span className="text-xs text-muted-foreground truncate max-w-[300px]">{commitMessage}</span>}
+                {commitMessage && <span className="text-xs text-muted-foreground truncate max-w-[200px] sm:max-w-[300px]">{commitMessage}</span>}
               </>
             ) : (
               <>
@@ -225,7 +225,7 @@ export function DiffModal({ open, onClose, repoOwner, repoName, branchName, base
                   <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
                 ) : (
                   <Select value={compareBranch} onValueChange={setCompareBranch}>
-                    <SelectTrigger className="w-48 h-7 text-xs">
+                    <SelectTrigger className="w-36 sm:w-48 h-7 text-xs">
                       <SelectValue placeholder="Compare to..." />
                     </SelectTrigger>
                     <SelectContent>
@@ -235,7 +235,7 @@ export function DiffModal({ open, onClose, repoOwner, repoName, branchName, base
                     </SelectContent>
                   </Select>
                 )}
-                <span className="text-xs text-muted-foreground">...{branchName}</span>
+                <span className="text-xs text-muted-foreground truncate">...{branchName}</span>
               </>
             )}
           </div>

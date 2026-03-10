@@ -66,7 +66,7 @@ export function RepoSidebar({
 
   return (
     <TooltipProvider delayDuration={0}>
-      <aside className="flex h-full w-[60px] shrink-0 flex-col items-center gap-2 border-r border-border bg-sidebar py-3">
+      <aside className="flex h-full w-[60px] sm:w-[60px] shrink-0 flex-col items-center gap-2 border-r border-border bg-sidebar py-3">
         {repos.map((repo, index) => {
           const isActive = repo.id === activeRepoId
           const hasRunning = repo.branches.some((b) => b.status === "running" || b.status === "creating")
@@ -124,7 +124,7 @@ export function RepoSidebar({
                   <button
                     onClick={() => onSelectRepo(repo.id)}
                     className={cn(
-                      "relative flex cursor-pointer h-10 w-10 items-center justify-center rounded-lg font-mono text-xs font-semibold transition-all overflow-hidden",
+                      "relative flex cursor-pointer h-11 w-11 sm:h-10 sm:w-10 items-center justify-center rounded-lg font-mono text-xs font-semibold transition-all overflow-hidden",
                       isActive
                         ? "ring-2 ring-primary"
                         : "hover:bg-accent hover:text-foreground"
@@ -167,9 +167,9 @@ export function RepoSidebar({
           <TooltipTrigger asChild>
             <button
               onClick={onOpenAddRepo}
-              className="flex cursor-pointer h-10 w-10 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+              className="flex cursor-pointer h-11 w-11 sm:h-10 sm:w-10 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
             >
-              <Plus className="h-4 w-4" />
+              <Plus className="h-5 w-5 sm:h-4 sm:w-4" />
             </button>
           </TooltipTrigger>
           <TooltipContent side="right">Add repository</TooltipContent>
@@ -179,7 +179,7 @@ export function RepoSidebar({
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <button
-                className="flex cursor-pointer h-10 w-10 items-center justify-center rounded-lg overflow-hidden transition-colors hover:ring-2 hover:ring-primary/50"
+                className="flex cursor-pointer h-11 w-11 sm:h-10 sm:w-10 items-center justify-center rounded-lg overflow-hidden transition-colors hover:ring-2 hover:ring-primary/50"
               >
                 {userAvatar ? (
                   <img src={userAvatar} alt="User menu" className="h-full w-full rounded-lg object-cover" />

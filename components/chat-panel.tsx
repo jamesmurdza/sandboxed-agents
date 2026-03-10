@@ -252,6 +252,7 @@ interface ChatPanelProps {
   onForceSave: () => void
   onCommitsDetected?: () => void
   onBranchFromCommit?: (commitHash: string) => void
+  isMobile?: boolean
 }
 
 export function ChatPanel({
@@ -268,6 +269,7 @@ export function ChatPanel({
   onForceSave,
   onCommitsDetected,
   onBranchFromCommit,
+  isMobile = false,
 }: ChatPanelProps) {
   const [input, setInput] = useState(branch.draftPrompt ?? "")
   const [renaming, setRenaming] = useState(false)
@@ -973,44 +975,55 @@ export function ChatPanel({
     <TooltipProvider delayDuration={0}>
       <div className="flex min-w-0 flex-1 flex-col bg-background">
         {/* Header */}
-        <header className="flex items-center gap-2 border-b border-border px-3 py-2.5 sm:px-4">
-          {renaming ? (
-            <div className="flex items-center gap-1.5 min-w-0 ml-2.5">
-              <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor" className="shrink-0 text-muted-foreground">
-                <path fillRule="evenodd" d="M11.75 2.5a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5zm-2.25.75a2.25 2.25 0 1 1 3 2.122V6A2.5 2.5 0 0 1 10 8.5H6a1 1 0 0 0-1 1v1.128a2.251 2.251 0 1 1-1.5 0V5.372a2.25 2.25 0 1 1 1.5 0v1.836A2.493 2.493 0 0 1 6 7h4a1 1 0 0 0 1-1v-.628A2.25 2.25 0 0 1 9.5 3.25zM4.25 12a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5zM3.5 3.25a.75.75 0 1 1 1.5 0 .75.75 0 0 1-1.5 0z" />
-              </svg>
-              <div className="inline-grid min-w-0 [&>*]:[grid-area:1/1]">
-                <span className="invisible whitespace-pre px-1.5 text-xs font-mono">{renameValue || " "}</span>
-                <input
-                  ref={renameInputRef}
-                  value={renameValue}
-                  onChange={(e) => setRenameValue(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") handleRename()
-                    if (e.key === "Escape") setRenaming(false)
-                  }}
-                  onBlur={() => { if (!renameLoading) setRenaming(false) }}
-                  disabled={renameLoading}
-                  className="h-6 bg-transparent border border-border/30 rounded px-1.5 text-xs font-mono text-foreground focus:outline-none focus:border-border/60 min-w-[3ch]"
-                  autoFocus
-                />
-              </div>
-              {renameLoading && <Loader2 className="h-3 w-3 animate-spin text-muted-foreground shrink-0" />}
-            </div>
-          ) : (
-            <button
-              onClick={() => { setRenaming(true); setRenameValue(branch.name) }}
-              className="flex items-center gap-1.5 min-w-0 ml-2.5 py-1 cursor-pointer group/branch"
-            >
-              <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor" className="shrink-0 text-muted-foreground">
-                <path fillRule="evenodd" d="M11.75 2.5a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5zm-2.25.75a2.25 2.25 0 1 1 3 2.122V6A2.5 2.5 0 0 1 10 8.5H6a1 1 0 0 0-1 1v1.128a2.251 2.251 0 1 1-1.5 0V5.372a2.25 2.25 0 1 1 1.5 0v1.836A2.493 2.493 0 0 1 6 7h4a1 1 0 0 0 1-1v-.628A2.25 2.25 0 0 1 9.5 3.25zM4.25 12a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5zM3.5 3.25a.75.75 0 1 1 1.5 0 .75.75 0 0 1-1.5 0z" />
-              </svg>
-              <span className="truncate text-xs font-mono text-muted-foreground">{branch.name}</span>
-              <Pencil className="h-2.5 w-2.5 shrink-0 text-muted-foreground/0 group-hover/branch:text-muted-foreground transition-colors" />
-            </button>
+        <header className={cn(
+          "flex items-center gap-2 border-b border-border",
+          isMobile ? "px-2 py-2" : "px-3 py-2.5 sm:px-4"
+        )}>
+          {/* Branch name section - hidden on mobile since it's in the parent header */}
+          {!isMobile && (
+            <>
+              {renaming ? (
+                <div className="flex items-center gap-1.5 min-w-0 ml-2.5">
+                  <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor" className="shrink-0 text-muted-foreground">
+                    <path fillRule="evenodd" d="M11.75 2.5a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5zm-2.25.75a2.25 2.25 0 1 1 3 2.122V6A2.5 2.5 0 0 1 10 8.5H6a1 1 0 0 0-1 1v1.128a2.251 2.251 0 1 1-1.5 0V5.372a2.25 2.25 0 1 1 1.5 0v1.836A2.493 2.493 0 0 1 6 7h4a1 1 0 0 0 1-1v-.628A2.25 2.25 0 0 1 9.5 3.25zM4.25 12a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5zM3.5 3.25a.75.75 0 1 1 1.5 0 .75.75 0 0 1-1.5 0z" />
+                  </svg>
+                  <div className="inline-grid min-w-0 [&>*]:[grid-area:1/1]">
+                    <span className="invisible whitespace-pre px-1.5 text-xs font-mono">{renameValue || " "}</span>
+                    <input
+                      ref={renameInputRef}
+                      value={renameValue}
+                      onChange={(e) => setRenameValue(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") handleRename()
+                        if (e.key === "Escape") setRenaming(false)
+                      }}
+                      onBlur={() => { if (!renameLoading) setRenaming(false) }}
+                      disabled={renameLoading}
+                      className="h-6 bg-transparent border border-border/30 rounded px-1.5 text-xs font-mono text-foreground focus:outline-none focus:border-border/60 min-w-[3ch]"
+                      autoFocus
+                    />
+                  </div>
+                  {renameLoading && <Loader2 className="h-3 w-3 animate-spin text-muted-foreground shrink-0" />}
+                </div>
+              ) : (
+                <button
+                  onClick={() => { setRenaming(true); setRenameValue(branch.name) }}
+                  className="flex items-center gap-1.5 min-w-0 ml-2.5 py-1 cursor-pointer group/branch"
+                >
+                  <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor" className="shrink-0 text-muted-foreground">
+                    <path fillRule="evenodd" d="M11.75 2.5a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5zm-2.25.75a2.25 2.25 0 1 1 3 2.122V6A2.5 2.5 0 0 1 10 8.5H6a1 1 0 0 0-1 1v1.128a2.251 2.251 0 1 1-1.5 0V5.372a2.25 2.25 0 1 1 1.5 0v1.836A2.493 2.493 0 0 1 6 7h4a1 1 0 0 0 1-1v-.628A2.25 2.25 0 0 1 9.5 3.25zM4.25 12a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5zM3.5 3.25a.75.75 0 1 1 1.5 0 .75.75 0 0 1-1.5 0z" />
+                  </svg>
+                  <span className="truncate text-xs font-mono text-muted-foreground">{branch.name}</span>
+                  <Pencil className="h-2.5 w-2.5 shrink-0 text-muted-foreground/0 group-hover/branch:text-muted-foreground transition-colors" />
+                </button>
+              )}
+            </>
           )}
 
-          <div className="ml-auto flex items-center gap-0.5 shrink-0 overflow-x-auto">
+          <div className={cn(
+            "flex items-center gap-0.5 shrink-0 overflow-x-auto",
+            isMobile ? "flex-1 justify-end" : "ml-auto"
+          )}>
             {branch.sandboxId && (<>
               <Tooltip>
                 <TooltipTrigger asChild>
@@ -1158,7 +1171,10 @@ export function ChatPanel({
         </header>
 
         {/* Messages */}
-        <div ref={scrollRef} onScroll={handleScroll} className="flex-1 overflow-y-auto px-3 py-6 sm:px-6">
+        <div ref={scrollRef} onScroll={handleScroll} className={cn(
+          "flex-1 overflow-y-auto py-4",
+          isMobile ? "px-3" : "px-3 py-6 sm:px-6"
+        )}>
           {branch.status === "creating" ? (
             <div className="flex h-full flex-col items-center justify-center gap-3 text-muted-foreground">
               <Loader2 className="h-8 w-8 animate-spin text-primary" />
@@ -1201,7 +1217,10 @@ export function ChatPanel({
         </div>
 
         {/* Input */}
-        <div className="border-t border-border px-3 py-3 sm:px-6">
+        <div className={cn(
+          "border-t border-border py-3",
+          isMobile ? "px-3" : "px-3 sm:px-6"
+        )}>
           <div className="flex items-end gap-2 rounded-lg border border-border bg-card px-3 py-2 focus-within:border-primary/50 focus-within:ring-1 focus-within:ring-primary/20">
             <textarea
               ref={textareaRef}

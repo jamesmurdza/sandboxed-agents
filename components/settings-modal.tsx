@@ -125,9 +125,9 @@ export function SettingsModal({ open, onClose, credentials, onCredentialsUpdate 
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
       <div className="absolute inset-0 bg-background/80 backdrop-blur-sm" onClick={onClose} />
-      <div className="relative z-10 flex w-full max-w-lg flex-col rounded-xl border border-border bg-card shadow-2xl overflow-hidden">
+      <div className="relative z-10 flex w-full max-w-lg flex-col rounded-xl border border-border bg-card shadow-2xl overflow-hidden max-h-[90vh]">
         {/* Header */}
         <div className="flex items-center justify-between border-b border-border px-5 py-4">
           <h2 className="text-sm font-semibold text-foreground">Settings</h2>
@@ -140,7 +140,7 @@ export function SettingsModal({ open, onClose, credentials, onCredentialsUpdate 
         </div>
 
         {/* Anthropic Credentials */}
-        <div className="flex flex-col gap-4 px-5 py-4">
+        <div className="flex flex-col gap-4 px-4 sm:px-5 py-4 overflow-y-auto">
           {/* Anthropic Auth */}
           <div className="flex flex-col gap-1.5">
             <div className="flex items-center gap-2">

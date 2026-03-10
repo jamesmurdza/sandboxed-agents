@@ -35,10 +35,11 @@ interface BranchListProps {
   onUpdateBranch: (branchId: string, updates: Partial<Branch>) => void
   onQuotaRefresh?: () => void
   quota?: { current: number; max: number; remaining: number } | null
-  width: number
+  width: number | string
   onWidthChange: (w: number) => void
   pendingStartCommit?: string | null
   onClearPendingCommit?: () => void
+  isMobile?: boolean
 }
 
 function StatusDot({ branch, isActive }: { branch: Branch; isActive: boolean }) {
@@ -90,6 +91,7 @@ export function BranchList({
   onWidthChange,
   pendingStartCommit,
   onClearPendingCommit,
+  isMobile = false,
 }: BranchListProps) {
   const [search, setSearch] = useState("")
   const [branchFromOpen, setBranchFromOpen] = useState(false)
@@ -356,8 +358,14 @@ export function BranchList({
     }
   }, [newBranchName, newBranchBase, creating, repo, onAddBranch, onUpdateBranch, onQuotaRefresh, branchPlaceholder, startCommit, githubBranches])
 
+  // Compute width style for desktop vs mobile
+  const widthStyle = isMobile ? { width: "100%" } : { width: typeof width === "number" ? width : width }
+
   return (
-    <div className="relative flex h-full shrink-0 flex-col border-r border-border bg-card" style={{ width }}>
+    <div className={cn(
+      "relative flex h-full flex-col bg-card",
+      isMobile ? "flex-1" : "shrink-0 border-r border-border"
+    )} style={widthStyle}>
       <a
         href={`https://github.com/${repo.owner}/${repo.name}`}
         target="_blank"
@@ -400,7 +408,9 @@ export function BranchList({
                   <button
                     onClick={() => onSelectBranch(branch.id)}
                     className={cn(
-                      "flex w-full cursor-pointer items-center gap-2.5 rounded-md px-3 py-2.5 text-left transition-colors",
+                      "flex w-full cursor-pointer items-center gap-2.5 rounded-md px-3 text-left transition-colors",
+                      // Larger touch targets on mobile
+                      isMobile ? "py-3.5 min-h-[56px]" : "py-2.5",
                       isActive
                         ? "bg-accent text-foreground"
                         : "text-muted-foreground hover:bg-accent/50 hover:text-foreground"
@@ -620,11 +630,13 @@ export function BranchList({
         </DialogContent>
       </Dialog>
 
-      {/* Resize handle */}
-      <div
-        onMouseDown={startResize}
-        className="absolute right-0 top-0 h-full w-1 cursor-col-resize hover:bg-primary/30 transition-colors z-10"
-      />
+      {/* Resize handle (desktop only) */}
+      {!isMobile && (
+        <div
+          onMouseDown={startResize}
+          className="absolute right-0 top-0 h-full w-1 cursor-col-resize hover:bg-primary/30 transition-colors z-10"
+        />
+      )}
     </div>
   )
 }
