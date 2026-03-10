@@ -14,7 +14,7 @@ export async function POST(req: Request) {
   }
 
   const body = await req.json()
-  const { sandboxId, contextId, prompt, previewUrlPattern, repoName } = body
+  const { sandboxId, contextId, prompt, previewUrlPattern, repoName, messageId } = body
 
   if (!sandboxId || !prompt) {
     return Response.json({ error: "Missing required fields" }, { status: 400 })
@@ -56,6 +56,10 @@ export async function POST(req: Request) {
   const actualRepoName = repoName || sandboxRecord.branch?.repo?.name || "repo"
 
   const encoder = new TextEncoder()
+
+  // Accumulate output so we can save it to DB even if client disconnects
+  let accumulatedContent = ""
+  let accumulatedToolCalls: { tool: string; summary: string }[] = []
 
   const stream = new ReadableStream({
     async start(controller) {
@@ -135,6 +139,14 @@ export async function POST(req: Request) {
                 }
                 return
               }
+              // Accumulate output for server-side persistence
+              if (text.startsWith("TOOL_USE:")) {
+                const toolSummary = text.replace("TOOL_USE:", "").trim()
+                const toolName = toolSummary.split(":")[0].trim()
+                accumulatedToolCalls.push({ tool: toolName, summary: toolSummary })
+              } else {
+                accumulatedContent += text
+              }
               send({ type: "stdout", content: text })
             },
             onStderr: (msg) => {
@@ -144,18 +156,61 @@ export async function POST(req: Request) {
         )
 
         if (result.error) {
+          accumulatedContent += accumulatedContent
+            ? `\n\nError: ${result.error.value}`
+            : `Error: ${result.error.value}`
           send({ type: "error", message: result.error.value })
         }
 
-        // Update sandbox status back to idle
+        // Save accumulated output to database - ensures message is persisted even if client disconnects
+        if (messageId && (accumulatedContent || accumulatedToolCalls.length > 0)) {
+          try {
+            await prisma.message.update({
+              where: { id: messageId },
+              data: {
+                content: accumulatedContent,
+                toolCalls: accumulatedToolCalls.length > 0 ? accumulatedToolCalls : undefined,
+              },
+            })
+          } catch {
+            // Message may not exist if client disconnected before it was saved
+          }
+        }
+
+        // Update sandbox and branch status back to idle
         await prisma.sandbox.update({
           where: { id: sandboxRecord.id },
-          data: { status: "running" },
+          data: { status: "idle" },
         })
+        if (sandboxRecord.branch) {
+          await prisma.branch.update({
+            where: { id: sandboxRecord.branch.id },
+            data: { status: "idle" },
+          })
+        }
 
         send({ type: "done" })
       } catch (error: unknown) {
         const message = error instanceof Error ? error.message : "Unknown error"
+
+        // Save error message to database if we have a messageId
+        if (messageId) {
+          const errorContent = accumulatedContent
+            ? `${accumulatedContent}\n\nError: ${message}`
+            : `Error: ${message}`
+          try {
+            await prisma.message.update({
+              where: { id: messageId },
+              data: {
+                content: errorContent,
+                toolCalls: accumulatedToolCalls.length > 0 ? accumulatedToolCalls : undefined,
+              },
+            })
+          } catch {
+            // Message may not exist
+          }
+        }
+
         send({ type: "error", message })
       }
 
