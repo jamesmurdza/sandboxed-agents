@@ -332,6 +332,7 @@ export function BranchList({
                   sandboxId: data.sandboxId,
                   contextId: data.contextId,
                   previewUrlPattern: data.previewUrlPattern,
+                  startCommit: data.startCommit,
                 })
               } else if (data.type === "error") {
                 onUpdateBranch(branchId, {

@@ -252,6 +252,7 @@ export async function POST(req: Request) {
           previewUrlPattern,
           branchId: branchRecord.id,
           repoId: dbRepo.id,
+          startCommit: headCommit,
         })
       } catch (error: unknown) {
         const message = error instanceof Error ? error.message : "Unknown error"
