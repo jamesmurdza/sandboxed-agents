@@ -391,6 +391,7 @@ export default function Home() {
 
     // Save message to database and get the real DB ID
     try {
+      console.log(`[DB] Saving ${message.role} message to branch ${branchId}...`)
       const res = await fetch("/api/branches/messages", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -406,12 +407,13 @@ export default function Home() {
       })
 
       if (!res.ok) {
-        console.error("Failed to save message to database:", res.status, res.statusText)
+        console.error("[DB] Failed to save message to database:", res.status, res.statusText)
         return message.id
       }
 
       const data = await res.json()
       const dbId = data.message?.id
+      console.log(`[DB] Message saved with ID: ${dbId}`)
 
       if (dbId && dbId !== message.id) {
         // Update local state with the real database ID
@@ -471,9 +473,15 @@ export default function Home() {
         content: updates.content,
         toolCalls: updates.toolCalls,
       }),
-    }).catch((error) => {
-      console.error("Error updating message in database:", error)
     })
+      .then((res) => {
+        if (!res.ok) {
+          console.error(`[DB] Failed to update message ${messageId}:`, res.status, res.statusText)
+        }
+      })
+      .catch((error) => {
+        console.error("[DB] Error updating message in database:", error)
+      })
   }, [activeRepo])
 
   const handleCredentialsUpdate = useCallback(() => {
