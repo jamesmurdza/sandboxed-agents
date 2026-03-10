@@ -43,7 +43,7 @@ export async function POST(req: Request) {
   }
 
   const body = await req.json()
-  const { branchId, role, content, toolCalls, timestamp, commitHash, commitMessage } = body
+  const { branchId, role, content, toolCalls, contentBlocks, timestamp, commitHash, commitMessage } = body
 
   if (!branchId || !role) {
     return Response.json({ error: "Missing required fields" }, { status: 400 })
@@ -65,6 +65,7 @@ export async function POST(req: Request) {
       role,
       content: content || "",
       toolCalls,
+      contentBlocks,
       timestamp,
       commitHash,
       commitMessage,
@@ -82,7 +83,7 @@ export async function PATCH(req: Request) {
   }
 
   const body = await req.json()
-  const { messageId, content, toolCalls } = body
+  const { messageId, content, toolCalls, contentBlocks } = body
 
   if (!messageId) {
     return Response.json({ error: "Missing message ID" }, { status: 400 })
@@ -103,6 +104,7 @@ export async function PATCH(req: Request) {
     data: {
       ...(content !== undefined && { content }),
       ...(toolCalls !== undefined && { toolCalls }),
+      ...(contentBlocks !== undefined && { contentBlocks }),
     },
   })
 

@@ -22,11 +22,15 @@ output_state = {
     "status": "running",
     "content": "",
     "toolCalls": [],
+    "contentBlocks": [],  # Interleaved text and tool calls in order
     "error": None,
     "sessionId": None,
     "startedAt": datetime.utcnow().isoformat() + "Z",
     "updatedAt": datetime.utcnow().isoformat() + "Z"
 }
+
+# Track pending tool calls to batch them together
+pending_tool_calls = []
 
 def save_output():
     """Save current state to output file atomically."""
@@ -103,6 +107,18 @@ try:
                         if not text.endswith("\\n"):
                             text = text + "\\n"
                         output_state["content"] += text
+                        # Flush any pending tool calls before adding text
+                        if pending_tool_calls:
+                            output_state["contentBlocks"].append({
+                                "type": "tool_calls",
+                                "toolCalls": pending_tool_calls.copy()
+                            })
+                            pending_tool_calls.clear()
+                        # Add text block
+                        output_state["contentBlocks"].append({
+                            "type": "text",
+                            "text": text
+                        })
                         save_output()
                     elif isinstance(block, ToolUseBlock):
                         detail = ""
@@ -119,13 +135,23 @@ try:
                         elif block.name == "Grep" and inp.get("pattern"):
                             detail = inp["pattern"]
                         summary = block.name + (": " + detail if detail else "")
-                        output_state["toolCalls"].append({
+                        tool_call = {
                             "tool": block.name,
                             "summary": summary
-                        })
+                        }
+                        output_state["toolCalls"].append(tool_call)
+                        pending_tool_calls.append(tool_call)
                         save_output()
 
     run_sync(run_query())
+
+    # Flush any remaining pending tool calls
+    if pending_tool_calls:
+        output_state["contentBlocks"].append({
+            "type": "tool_calls",
+            "toolCalls": pending_tool_calls.copy()
+        })
+        pending_tool_calls.clear()
 
     # Mark as completed
     output_state["status"] = "completed"

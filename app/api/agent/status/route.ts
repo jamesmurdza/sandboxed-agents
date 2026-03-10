@@ -87,6 +87,7 @@ export async function POST(req: Request) {
       status: string
       content: string
       toolCalls: Array<{ tool: string; summary: string }>
+      contentBlocks: Array<{ type: string; text?: string; toolCalls?: Array<{ tool: string; summary: string }> }>
       error: string | null
       sessionId: string | null
     }
@@ -104,13 +105,16 @@ export async function POST(req: Request) {
     }
 
     // 6. Update message in database with latest content
-    if (outputData.content || (outputData.toolCalls && outputData.toolCalls.length > 0)) {
+    if (outputData.content || (outputData.toolCalls && outputData.toolCalls.length > 0) || (outputData.contentBlocks && outputData.contentBlocks.length > 0)) {
       await prisma.message.update({
         where: { id: execution.messageId },
         data: {
           content: outputData.content || "",
           toolCalls: outputData.toolCalls && outputData.toolCalls.length > 0
             ? outputData.toolCalls
+            : undefined,
+          contentBlocks: outputData.contentBlocks && outputData.contentBlocks.length > 0
+            ? outputData.contentBlocks
             : undefined,
         },
       })
@@ -156,6 +160,7 @@ export async function POST(req: Request) {
       status: outputData.status,
       content: outputData.content || "",
       toolCalls: outputData.toolCalls || [],
+      contentBlocks: outputData.contentBlocks || [],
       error: outputData.error,
       sessionId: outputData.sessionId,
     })
