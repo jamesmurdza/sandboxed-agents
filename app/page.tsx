@@ -33,6 +33,7 @@ interface DbMessage {
   role: string
   content: string
   toolCalls: unknown
+  contentBlocks: unknown
   timestamp: string | null
   commitHash: string | null
   commitMessage: string | null
@@ -90,6 +91,7 @@ function transformBranch(dbBranch: DbBranch): Branch {
       role: m.role as "user" | "assistant",
       content: m.content,
       toolCalls: m.toolCalls as Message["toolCalls"],
+      contentBlocks: m.contentBlocks as Message["contentBlocks"],
       timestamp: m.timestamp || "",
       commitHash: m.commitHash || undefined,
       commitMessage: m.commitMessage || undefined,
@@ -218,6 +220,7 @@ export default function Home() {
                       role: m.role as "user" | "assistant",
                       content: m.content,
                       toolCalls: m.toolCalls as Message["toolCalls"],
+                      contentBlocks: m.contentBlocks as Message["contentBlocks"],
                       timestamp: m.timestamp || "",
                       commitHash: m.commitHash || undefined,
                       commitMessage: m.commitMessage || undefined,
@@ -475,6 +478,7 @@ export default function Home() {
           role: message.role,
           content: message.content,
           toolCalls: message.toolCalls,
+          contentBlocks: message.contentBlocks,
           timestamp: message.timestamp,
           commitHash: message.commitHash,
           commitMessage: message.commitMessage,
@@ -547,6 +551,7 @@ export default function Home() {
         messageId,
         content: updates.content,
         toolCalls: updates.toolCalls,
+        contentBlocks: updates.contentBlocks,
       }),
     }).catch((error) => {
       console.error("Error updating message in database:", error)
@@ -807,6 +812,7 @@ export default function Home() {
                                 role: m.role as "user" | "assistant",
                                 content: m.content,
                                 toolCalls: m.toolCalls as Message["toolCalls"],
+                                contentBlocks: m.contentBlocks as Message["contentBlocks"],
                                 timestamp: m.timestamp || "",
                                 commitHash: m.commitHash || undefined,
                                 commitMessage: m.commitMessage || undefined,
