@@ -974,7 +974,7 @@ export function ChatPanel({
 
   return (
     <TooltipProvider delayDuration={0}>
-      <div className="flex min-w-0 flex-1 flex-col bg-background overflow-hidden">
+      <div className="flex min-w-0 min-h-0 flex-1 flex-col bg-background overflow-hidden">
         {/* Header - hidden on mobile since MobileHeader handles it */}
         {!isMobile && (
         <header className={cn(
