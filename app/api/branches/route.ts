@@ -48,7 +48,13 @@ export async function POST(req: Request) {
     },
     include: {
       sandbox: true,
-      messages: true,
+      messages: {
+        orderBy: { createdAt: "asc" },
+        take: 100, // Limit messages to prevent OOM on large conversations
+      },
+      _count: {
+        select: { messages: true }, // Include total count for pagination
+      },
     },
   })
 
@@ -119,7 +125,13 @@ export async function PATCH(req: Request) {
     },
     include: {
       sandbox: true,
-      messages: true,
+      messages: {
+        orderBy: { createdAt: "asc" },
+        take: 100, // Limit messages to prevent OOM on large conversations
+      },
+      _count: {
+        select: { messages: true }, // Include total count for pagination
+      },
     },
   })
 
