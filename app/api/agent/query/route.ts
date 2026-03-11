@@ -207,9 +207,10 @@ export async function POST(req: Request) {
         )
 
         if (result.error) {
-          accumulatedContent += accumulatedContent
-            ? `\n\nError: ${result.error.value}`
-            : `Error: ${result.error.value}`
+          const errorMsg = `Error: ${result.error.value}`
+          accumulatedContent = accumulatedContent
+            ? `${accumulatedContent}\n\n${errorMsg}`
+            : errorMsg
           send({ type: "error", message: result.error.value })
         }
 
@@ -235,9 +236,10 @@ export async function POST(req: Request) {
         // Save error message to database if we have a messageId
         // Only add error to content if it's not a stream cancellation
         if (!streamCancelled) {
-          accumulatedContent += accumulatedContent
-            ? `\n\nError: ${message}`
-            : `Error: ${message}`
+          const errorMsg = `Error: ${message}`
+          accumulatedContent = accumulatedContent
+            ? `${accumulatedContent}\n\n${errorMsg}`
+            : errorMsg
         }
         await saveAccumulatedContent()
 
