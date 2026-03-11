@@ -1,21 +1,26 @@
-import { getServerSession } from "next-auth"
-import { authOptions } from "@/lib/auth"
-import { prisma } from "@/lib/prisma"
 import { Daytona } from "@daytonaio/sdk"
+import { prisma } from "@/lib/prisma"
 import { getOutputFilePath } from "@/lib/background-agent-script"
+import {
+  requireAuth,
+  isAuthError,
+  getDaytonaApiKey,
+  isDaytonaKeyError,
+  badRequest,
+  notFound,
+  unauthorized,
+} from "@/lib/api-helpers"
 
 export async function POST(req: Request) {
   // 1. Authenticate
-  const session = await getServerSession(authOptions)
-  if (!session?.user?.id) {
-    return Response.json({ error: "Unauthorized" }, { status: 401 })
-  }
+  const auth = await requireAuth()
+  if (isAuthError(auth)) return auth
 
   const body = await req.json()
   const { executionId, messageId } = body
 
   if (!executionId && !messageId) {
-    return Response.json({ error: "Missing executionId or messageId" }, { status: 400 })
+    return badRequest("Missing executionId or messageId")
   }
 
   // 2. Find the execution record
@@ -37,20 +42,18 @@ export async function POST(req: Request) {
   })
 
   if (!execution) {
-    return Response.json({ error: "Execution not found" }, { status: 404 })
+    return notFound("Execution not found")
   }
 
   // 3. Verify user owns this execution
   const sandbox = execution.message.branch.sandbox
-  if (!sandbox || sandbox.userId !== session.user.id) {
-    return Response.json({ error: "Unauthorized" }, { status: 403 })
+  if (!sandbox || sandbox.userId !== auth.userId) {
+    return unauthorized()
   }
 
   // 4. Get credentials
-  const daytonaApiKey = process.env.DAYTONA_API_KEY
-  if (!daytonaApiKey) {
-    return Response.json({ error: "Server configuration error" }, { status: 500 })
-  }
+  const daytonaApiKey = getDaytonaApiKey()
+  if (isDaytonaKeyError(daytonaApiKey)) return daytonaApiKey
 
   try {
     // 5. Read output file from sandbox
@@ -105,7 +108,6 @@ export async function POST(req: Request) {
     }
 
     // 6. Only update DB on completion/error (not on every poll)
-    // This reduces DB operations from 6 per poll to 1 read + batch write on completion
     const isCompleted = outputData.status === "completed" || outputData.status === "error"
 
     if (isCompleted) {
@@ -182,7 +184,7 @@ export async function GET(req: Request) {
   const messageId = url.searchParams.get("messageId")
 
   if (!executionId && !messageId) {
-    return Response.json({ error: "Missing executionId or messageId" }, { status: 400 })
+    return badRequest("Missing executionId or messageId")
   }
 
   // Create a fake request body and delegate to POST
