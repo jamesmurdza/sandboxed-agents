@@ -362,10 +362,8 @@ export function ChatPanel({
           onUpdateBranch({ status: "stopped" })
         } else if (currentStatus === "running" && !pollingRef.current) {
           // Branch shows "running" - check for active execution and resume polling
-          if (!currentMessages || currentMessages.length === 0) {
-            console.log("[chat-panel] Branch shows running but has no messages, resetting to idle")
-            onUpdateBranch({ status: "idle" })
-          } else {
+          // If messages are loaded, find the last assistant message
+          if (currentMessages && currentMessages.length > 0) {
             const lastAssistantMsg = [...currentMessages].reverse().find(m => m.role === "assistant" && !m.commitHash)
             if (lastAssistantMsg) {
               currentMessageIdRef.current = lastAssistantMsg.id
@@ -373,6 +371,31 @@ export function ChatPanel({
             } else {
               onUpdateBranch({ status: "idle" })
             }
+          } else {
+            // Messages not loaded yet - query the API to check for active execution
+            // This handles page refresh scenario where messages load asynchronously
+            fetch("/api/agent/execution/active", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ branchId: branch.id }),
+            })
+              .then((r) => r.json())
+              .then((execData) => {
+                if (execData.execution && execData.execution.status === "running") {
+                  // Found active execution - resume polling
+                  currentMessageIdRef.current = execData.execution.messageId
+                  currentExecutionIdRef.current = execData.execution.executionId
+                  startPollingRef.current(execData.execution.messageId, execData.execution.executionId)
+                } else {
+                  // No active execution found - reset to idle
+                  console.log("[chat-panel] No active execution found for running branch, resetting to idle")
+                  onUpdateBranch({ status: "idle" })
+                }
+              })
+              .catch(() => {
+                // On error, reset to idle to avoid stuck state
+                onUpdateBranch({ status: "idle" })
+              })
           }
         }
       })

@@ -159,10 +159,63 @@ export default function Home() {
         if (!r.ok) throw new Error(`Failed to fetch user data: ${r.status}`)
         return r.json()
       })
-      .then((data) => {
+      .then(async (data) => {
         if (data.repos) {
           const transformedRepos = data.repos.map(transformRepo)
           setRepos(transformedRepos)
+
+          // Eagerly load messages for any running branches to prevent race conditions
+          // This ensures messages are available when chat-panel checks for active executions
+          type TransformedRepo = ReturnType<typeof transformRepo>
+          const runningBranches = transformedRepos.flatMap((r: TransformedRepo) =>
+            r.branches.filter((b) => b.status === "running").map((b) => ({ repoId: r.id, branch: b }))
+          )
+
+          if (runningBranches.length > 0) {
+            // Load messages for all running branches in parallel
+            const messagePromises = runningBranches.map(async ({ repoId, branch }) => {
+              try {
+                const res = await fetch(`/api/branches/messages?branchId=${branch.id}`)
+                if (!res.ok) return null
+                const msgData = await res.json()
+                return { repoId, branchId: branch.id, messages: msgData.messages || [] }
+              } catch {
+                return null
+              }
+            })
+
+            const results = await Promise.all(messagePromises)
+            const validResults = results.filter((r): r is { repoId: string; branchId: string; messages: DbMessage[] } => r !== null && r.messages.length > 0)
+
+            if (validResults.length > 0) {
+              setRepos((prev) =>
+                prev.map((r) => {
+                  const branchUpdates = validResults.filter(u => u.repoId === r.id)
+                  if (branchUpdates.length === 0) return r
+                  return {
+                    ...r,
+                    branches: r.branches.map((b) => {
+                      const update = branchUpdates.find(u => u.branchId === b.id)
+                      if (!update) return b
+                      return {
+                        ...b,
+                        messages: update.messages.map((m: DbMessage) => ({
+                          id: m.id,
+                          role: m.role as "user" | "assistant",
+                          content: m.content,
+                          toolCalls: m.toolCalls as Message["toolCalls"],
+                          contentBlocks: m.contentBlocks as Message["contentBlocks"],
+                          timestamp: m.timestamp || "",
+                          commitHash: m.commitHash || undefined,
+                          commitMessage: m.commitMessage || undefined,
+                        })),
+                      }
+                    }),
+                  }
+                })
+              )
+            }
+          }
         }
         if (data.quota) {
           setQuota(data.quota)
