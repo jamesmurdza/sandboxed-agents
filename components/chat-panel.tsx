@@ -471,6 +471,11 @@ export function ChatPanel({
       clearInterval(pollingRef.current)
     }
 
+    // Track 404 retry attempts - allow several retries before giving up
+    // This handles race conditions where the execution record isn't yet visible in the DB
+    let notFoundRetries = 0
+    const MAX_NOT_FOUND_RETRIES = 10 // Allow up to 10 retries (5 seconds at 500ms intervals)
+
     const poll = async () => {
       try {
         const res = await fetch("/api/agent/status", {
@@ -484,20 +489,33 @@ export function ChatPanel({
         const data = await res.json()
 
         if (!res.ok) {
-          console.error("Polling error:", data.error)
-          // Stop polling on "Execution not found" - the execution record doesn't exist
+          // Handle "Execution not found" with retries to handle race conditions
           if (res.status === 404 && data.error === "Execution not found") {
-            if (pollingRef.current) {
-              clearInterval(pollingRef.current)
-              pollingRef.current = null
+            notFoundRetries++
+            console.warn(`Polling: Execution not found (attempt ${notFoundRetries}/${MAX_NOT_FOUND_RETRIES})`)
+
+            // Only stop polling after exhausting retries
+            if (notFoundRetries >= MAX_NOT_FOUND_RETRIES) {
+              console.error("Polling error: Execution not found after max retries, stopping")
+              if (pollingRef.current) {
+                clearInterval(pollingRef.current)
+                pollingRef.current = null
+              }
+              currentExecutionIdRef.current = null
+              currentMessageIdRef.current = null
+              // Reset branch status to idle since there's no valid execution
+              onUpdateBranch({ status: "idle" })
             }
-            currentExecutionIdRef.current = null
-            currentMessageIdRef.current = null
-            // Reset branch status to idle since there's no valid execution
-            onUpdateBranch({ status: "idle" })
+            // Don't return early - let it retry on next interval
+            return
           }
+          // For other errors, log but don't stop polling
+          console.error("Polling error:", data.error)
           return
         }
+
+        // Reset retry counter on successful response
+        notFoundRetries = 0
 
         // Update message content
         if (data.content || (data.toolCalls && data.toolCalls.length > 0) || (data.contentBlocks && data.contentBlocks.length > 0)) {
@@ -637,9 +655,13 @@ export function ChatPanel({
       }
     }
 
-    // Start polling immediately, then every 500ms
-    poll()
-    pollingRef.current = setInterval(poll, 500)
+    // Start polling after a short delay to allow DB write to commit, then every 500ms
+    // The 150ms initial delay helps avoid race conditions where the execution record
+    // isn't yet visible in the database
+    setTimeout(() => {
+      poll()
+      pollingRef.current = setInterval(poll, 500)
+    }, 150)
   }, [branch.sandboxId, branch.name, branch.messages, repoName, onUpdateMessage, onUpdateBranch, onAddMessage, onForceSave, onCommitsDetected])
   startPollingRef.current = startPolling
 
