@@ -450,6 +450,17 @@ export function ChatPanel({
 
         if (!res.ok) {
           console.error("Polling error:", data.error)
+          // Stop polling on "Execution not found" - the execution record doesn't exist
+          if (res.status === 404 && data.error === "Execution not found") {
+            if (pollingRef.current) {
+              clearInterval(pollingRef.current)
+              pollingRef.current = null
+            }
+            currentExecutionIdRef.current = null
+            currentMessageIdRef.current = null
+            // Reset branch status to idle since there's no valid execution
+            onUpdateBranch({ status: "idle" })
+          }
           return
         }
 
