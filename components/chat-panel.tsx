@@ -1223,9 +1223,9 @@ export function ChatPanel({
         <div
           className={cn(
             "shrink-0 border-t border-border",
-            isMobile ? "px-3 pt-3 pb-3" : "px-3 py-3 sm:px-6"
+            isMobile ? "px-3 pt-3" : "px-3 py-3 sm:px-6"
           )}
-          style={isMobile ? { paddingBottom: 'calc(3.75rem + var(--safe-area-inset-bottom) + 0.75rem)' } : undefined}
+          style={isMobile ? { paddingBottom: 'calc(var(--safe-area-inset-bottom) + 0.75rem)' } : undefined}
         >
           <div className="flex items-end gap-2 rounded-lg border border-border bg-card px-3 py-2 focus-within:border-primary/50 focus-within:ring-1 focus-within:ring-primary/20">
             <textarea

@@ -11,11 +11,10 @@ import { ChatPanel, EmptyChatPanel } from "@/components/chat-panel"
 import { GitHistoryPanel } from "@/components/git-history-panel"
 import { SettingsModal } from "@/components/settings-modal"
 import { AddRepoModal } from "@/components/add-repo-modal"
-import { MobileBottomNav } from "@/components/mobile-bottom-nav"
 import { MobileHeader } from "@/components/mobile-header"
 import { MobileSidebarDrawer } from "@/components/mobile-sidebar-drawer"
 import { DiffModal } from "@/components/diff-modal"
-import { Loader2, GitBranch } from "lucide-react"
+import { Loader2 } from "lucide-react"
 import { useIsMobile } from "@/hooks/use-mobile"
 
 // Types for database models
@@ -123,7 +122,6 @@ export default function Home() {
   const activeBranchIdRef = useRef(activeBranchId)
   activeBranchIdRef.current = activeBranchId
 
-  const [mobileView, setMobileView] = useState<"branches" | "chat">("branches")
   const [branchListWidth, setBranchListWidth] = useState(260)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [addRepoOpen, setAddRepoOpen] = useState(false)
@@ -136,6 +134,11 @@ export default function Home() {
   const [mobileSandboxToggleLoading, setMobileSandboxToggleLoading] = useState(false)
   const [mobilePrLoading, setMobilePrLoading] = useState(false)
   const [mobileDiffOpen, setMobileDiffOpen] = useState(false)
+  const [mobileNewBranchOpen, setMobileNewBranchOpen] = useState(false)
+  const [mobileMergeOpen, setMobileMergeOpen] = useState(false)
+  const [mobileRebaseOpen, setMobileRebaseOpen] = useState(false)
+  const [mobileTagOpen, setMobileTagOpen] = useState(false)
+  const [mobileResetOpen, setMobileResetOpen] = useState(false)
 
   // Redirect to login if not authenticated
   useEffect(() => {
@@ -211,12 +214,10 @@ export default function Home() {
     setActiveRepoId(repoId)
     const repo = repos.find((r) => r.id === repoId)
     setActiveBranchId(repo?.branches[0]?.id ?? null)
-    setMobileView("branches")
   }
 
   function handleSelectBranch(branchId: string) {
     setActiveBranchId(branchId)
-    setMobileView("chat")
   }
 
   function handleAddRepo(repo: ReturnType<typeof transformRepo>) {
@@ -260,7 +261,6 @@ export default function Home() {
       })
     )
     setActiveBranchId(branch.id)
-    setMobileView("chat")
   }, [activeRepo])
 
   const handleQuotaRefresh = useCallback(() => {
@@ -619,10 +619,12 @@ export default function Home() {
             onOpenChange={setMobileSidebarOpen}
             repos={repos}
             activeRepoId={activeRepoId}
+            activeBranchId={activeBranchId}
             userAvatar={session?.user?.image || null}
             userName={session?.user?.name || null}
             userLogin={session?.user?.githubLogin || null}
             onSelectRepo={handleSelectRepo}
+            onSelectBranch={handleSelectBranch}
             onRemoveRepo={handleRemoveRepo}
             onOpenSettings={() => setSettingsOpen(true)}
             onOpenAddRepo={() => setAddRepoOpen(true)}
@@ -658,86 +660,56 @@ export default function Home() {
           )}
         </div>
 
-        {/* Mobile: Full layout with header, content, and bottom nav */}
+        {/* Mobile: Header + Chat (Slack-like layout) */}
         {isMobile && (
           <div className="flex flex-1 flex-col min-h-0 overflow-hidden sm:hidden">
-            {/* Mobile Header */}
+            {/* Mobile Header with hamburger and actions */}
             <MobileHeader
               repoOwner={activeRepo?.owner || null}
               repoName={activeRepo?.name || null}
               branch={activeBranch}
+              onOpenSidebar={() => setMobileSidebarOpen(true)}
+              onOpenNewBranch={() => setMobileNewBranchOpen(true)}
               onToggleGitHistory={() => setGitHistoryOpen((v) => !v)}
               onOpenDiff={() => setMobileDiffOpen(true)}
               onCreatePR={handleMobileCreatePR}
               onSandboxToggle={handleMobileSandboxToggle}
+              onMerge={() => setMobileMergeOpen(true)}
+              onRebase={() => setMobileRebaseOpen(true)}
+              onReset={() => setMobileResetOpen(true)}
+              onTag={() => setMobileTagOpen(true)}
               gitHistoryOpen={gitHistoryOpen}
               sandboxToggleLoading={mobileSandboxToggleLoading}
               prLoading={mobilePrLoading}
             />
 
-            {/* Content area - branches or chat based on mobileView */}
+            {/* Chat content */}
             <div className="flex-1 min-h-0 overflow-hidden">
-              {mobileView === "branches" ? (
-                activeRepo ? (
-                  <BranchList
-                    repo={activeRepo}
-                    activeBranchId={activeBranchId}
-                    onSelectBranch={handleSelectBranch}
-                    onAddBranch={handleAddBranch}
-                    onRemoveBranch={handleRemoveBranch}
-                    onUpdateBranch={handleUpdateBranch}
-                    onQuotaRefresh={handleQuotaRefresh}
-                    width="100%"
-                    onWidthChange={() => {}}
-                    pendingStartCommit={pendingStartCommit}
-                    onClearPendingCommit={() => setPendingStartCommit(null)}
-                    quota={quota}
-                    isMobile={true}
-                  />
-                ) : (
-                  <div className="flex h-full flex-col items-center justify-center bg-card text-muted-foreground px-4">
-                    <GitBranch className="h-8 w-8 mb-3 text-muted-foreground/50" />
-                    <p className="text-sm text-center">Add a repository to get started</p>
-                    <p className="text-xs text-muted-foreground/60 mt-1 text-center">
-                      Tap Repos in the bottom nav to add one
-                    </p>
-                  </div>
-                )
+              {activeBranch && activeRepo ? (
+                <ChatPanel
+                  branch={activeBranch}
+                  repoFullName={`${activeRepo.owner}/${activeRepo.name}`}
+                  repoName={activeRepo.name}
+                  repoOwner={activeRepo.owner}
+                  gitHistoryOpen={gitHistoryOpen}
+                  onToggleGitHistory={() => setGitHistoryOpen((v) => !v)}
+                  onAddMessage={(msg) => handleAddMessage(activeBranch.id, msg)}
+                  onUpdateMessage={(messageId, updates) =>
+                    handleUpdateMessage(activeBranch.id, messageId, updates)
+                  }
+                  onUpdateBranch={(updates) =>
+                    handleUpdateBranch(activeBranch.id, updates)
+                  }
+                  onSaveDraftForBranch={handleSaveDraftForBranch}
+                  onForceSave={() => {}}
+                  onCommitsDetected={() => setGitHistoryRefreshTrigger((n) => n + 1)}
+                  onBranchFromCommit={(hash) => setPendingStartCommit(hash)}
+                  isMobile={true}
+                />
               ) : (
-                activeBranch && activeRepo ? (
-                  <ChatPanel
-                    branch={activeBranch}
-                    repoFullName={`${activeRepo.owner}/${activeRepo.name}`}
-                    repoName={activeRepo.name}
-                    repoOwner={activeRepo.owner}
-                    gitHistoryOpen={gitHistoryOpen}
-                    onToggleGitHistory={() => setGitHistoryOpen((v) => !v)}
-                    onAddMessage={(msg) => handleAddMessage(activeBranch.id, msg)}
-                    onUpdateMessage={(messageId, updates) =>
-                      handleUpdateMessage(activeBranch.id, messageId, updates)
-                    }
-                    onUpdateBranch={(updates) =>
-                      handleUpdateBranch(activeBranch.id, updates)
-                    }
-                    onSaveDraftForBranch={handleSaveDraftForBranch}
-                    onForceSave={() => {}}
-                    onCommitsDetected={() => setGitHistoryRefreshTrigger((n) => n + 1)}
-                    onBranchFromCommit={(hash) => setPendingStartCommit(hash)}
-                    isMobile={true}
-                  />
-                ) : (
-                  <EmptyChatPanel hasRepos={repos.length > 0} />
-                )
+                <EmptyChatPanel hasRepos={repos.length > 0} />
               )}
             </div>
-
-            {/* Bottom Navigation */}
-            <MobileBottomNav
-              activeView={mobileView}
-              onViewChange={setMobileView}
-              onOpenSidebar={() => setMobileSidebarOpen(true)}
-              hasActiveChat={!!activeBranch}
-            />
           </div>
         )}
 

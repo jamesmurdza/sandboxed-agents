@@ -482,10 +482,7 @@ export function BranchList({
 
       {/* New Branch Section */}
       {newBranchOpen ? (
-        <div
-          className="border-t border-border p-3"
-          style={isMobile ? { paddingBottom: 'calc(3.75rem + var(--safe-area-inset-bottom) + 0.75rem)' } : undefined}
-        >
+        <div className="border-t border-border p-3">
           <div className="flex flex-col gap-2">
             <div className="flex items-center justify-between">
               <span className="text-xs font-medium text-foreground">New branch</span>
@@ -563,10 +560,7 @@ export function BranchList({
           </div>
         </div>
       ) : (
-        <div
-          className="border-t border-border p-3"
-          style={isMobile ? { paddingBottom: 'calc(3.75rem + var(--safe-area-inset-bottom) + 0.75rem)' } : undefined}
-        >
+        <div className="border-t border-border p-3">
           <button
             onClick={() => {
               setNewBranchOpen(true)
