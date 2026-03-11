@@ -46,7 +46,7 @@ interface DbBranch {
   prUrl: string | null
   draftPrompt: string | null
   sandbox: DbSandbox | null
-  messages: DbMessage[]
+  messages?: DbMessage[]
 }
 
 interface DbRepo {
@@ -84,7 +84,7 @@ function transformBranch(dbBranch: DbBranch): Branch {
     contextId: dbBranch.sandbox?.contextId || undefined,
     sessionId: dbBranch.sandbox?.sessionId || undefined,
     previewUrlPattern: dbBranch.sandbox?.previewUrlPattern || undefined,
-    messages: dbBranch.messages.map((m) => ({
+    messages: (dbBranch.messages || []).map((m) => ({
       id: m.id,
       role: m.role as "user" | "assistant",
       content: m.content,
@@ -103,7 +103,7 @@ function transformRepo(dbRepo: DbRepo) {
     owner: dbRepo.owner,
     avatar: dbRepo.avatar || "",
     defaultBranch: dbRepo.defaultBranch,
-    branches: dbRepo.branches.map(transformBranch),
+    branches: (dbRepo.branches || []).map(transformBranch),
   }
 }
 
