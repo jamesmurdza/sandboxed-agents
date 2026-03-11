@@ -15,7 +15,6 @@ import {
   GitCompareArrows,
   Tag,
   RotateCcw,
-  Plus,
 } from "lucide-react"
 import {
   DropdownMenu,
@@ -30,7 +29,6 @@ interface MobileHeaderProps {
   repoName: string | null
   branch: Branch | null
   onOpenSidebar: () => void
-  onOpenNewBranch: () => void
   onToggleGitHistory: () => void
   onOpenDiff: () => void
   onCreatePR: () => void
@@ -49,7 +47,6 @@ export function MobileHeader({
   repoName,
   branch,
   onOpenSidebar,
-  onOpenNewBranch,
   onToggleGitHistory,
   onOpenDiff,
   onCreatePR,
@@ -110,32 +107,8 @@ export function MobileHeader({
 
       {/* Action buttons - right side */}
       <div className="flex items-center gap-0.5">
-        {/* New branch button */}
-        <button
-          onClick={onOpenNewBranch}
-          disabled={!repoName}
-          className="flex h-9 w-9 cursor-pointer items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
-        >
-          <Plus className="h-4 w-4" />
-        </button>
-
         {hasSandbox && (
           <>
-            {/* Sandbox toggle */}
-            <button
-              onClick={onSandboxToggle}
-              disabled={sandboxToggleLoading || isRunning}
-              className="flex h-9 w-9 cursor-pointer items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
-            >
-              {sandboxToggleLoading ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
-              ) : isStopped ? (
-                <Play className="h-4 w-4" />
-              ) : (
-                <Pause className="h-4 w-4" />
-              )}
-            </button>
-
             {/* Git actions dropdown */}
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
@@ -147,6 +120,24 @@ export function MobileHeader({
                 </button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="w-48">
+                {/* Sandbox toggle */}
+                <DropdownMenuItem
+                  onClick={onSandboxToggle}
+                  disabled={sandboxToggleLoading || isRunning}
+                  className="cursor-pointer"
+                >
+                  {sandboxToggleLoading ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : isStopped ? (
+                    <Play className="h-4 w-4" />
+                  ) : (
+                    <Pause className="h-4 w-4" />
+                  )}
+                  {isStopped ? "Start sandbox" : "Pause sandbox"}
+                </DropdownMenuItem>
+
+                <DropdownMenuSeparator />
+
                 {/* PR */}
                 <DropdownMenuItem
                   onClick={onCreatePR}

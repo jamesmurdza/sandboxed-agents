@@ -135,7 +135,6 @@ export default function Home() {
   const [mobileSandboxToggleLoading, setMobileSandboxToggleLoading] = useState(false)
   const [mobilePrLoading, setMobilePrLoading] = useState(false)
   const [mobileDiffOpen, setMobileDiffOpen] = useState(false)
-  const [mobileNewBranchOpen, setMobileNewBranchOpen] = useState(false)
   const [mobileMergeOpen, setMobileMergeOpen] = useState(false)
   const [mobileRebaseOpen, setMobileRebaseOpen] = useState(false)
   const [mobileTagOpen, setMobileTagOpen] = useState(false)
@@ -683,6 +682,9 @@ export default function Home() {
             onOpenAddRepo={() => setAddRepoOpen(true)}
             onSignOut={() => signOut({ callbackUrl: "/login" })}
             quota={quota}
+            onAddBranch={handleAddBranch}
+            onUpdateBranch={handleUpdateBranch}
+            onQuotaRefresh={handleQuotaRefresh}
           />
         )}
 
@@ -722,7 +724,6 @@ export default function Home() {
               repoName={activeRepo?.name || null}
               branch={activeBranch}
               onOpenSidebar={() => setMobileSidebarOpen(true)}
-              onOpenNewBranch={() => setMobileNewBranchOpen(true)}
               onToggleGitHistory={() => setGitHistoryOpen((v) => !v)}
               onOpenDiff={() => setMobileDiffOpen(true)}
               onCreatePR={handleMobileCreatePR}

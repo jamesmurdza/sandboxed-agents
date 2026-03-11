@@ -3,9 +3,11 @@
 import { cn } from "@/lib/utils"
 import type { Repo, Branch } from "@/lib/types"
 import { agentLabels } from "@/lib/types"
+import { generateId } from "@/lib/store"
 import { Plus, X, LogOut, Settings, Box, ChevronDown, Check, Loader2, GitBranch } from "lucide-react"
-import { useState } from "react"
+import { useState, useRef, useEffect, useCallback } from "react"
 import { Sheet, SheetContent } from "@/components/ui/sheet"
+import { Input } from "@/components/ui/input"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -20,6 +22,17 @@ import {
   DialogTitle,
   DialogFooter,
 } from "@/components/ui/dialog"
+
+const WORDS = [
+  "swift","lunar","amber","coral","ember","frost","bloom","spark","drift","pulse",
+  "cedar","maple","river","stone","cloud","flame","steel","light","storm","wave",
+  "tiger","eagle","brave","vivid","noble","rapid","quiet","sharp","fresh","grand",
+]
+
+function randomBranchName() {
+  const pick = () => WORDS[Math.floor(Math.random() * WORDS.length)]
+  return `${pick()}-${pick()}-${pick()}`
+}
 
 interface Quota {
   current: number
@@ -43,6 +56,9 @@ interface MobileSidebarDrawerProps {
   onOpenAddRepo: () => void
   onSignOut?: () => void
   quota?: Quota | null
+  onAddBranch?: (branch: Branch) => void
+  onUpdateBranch?: (branchId: string, updates: Partial<Branch>) => void
+  onQuotaRefresh?: () => void
 }
 
 function StatusDot({ branch, isActive }: { branch: Branch; isActive: boolean }) {
@@ -97,10 +113,178 @@ export function MobileSidebarDrawer({
   onOpenAddRepo,
   onSignOut,
   quota,
+  onAddBranch,
+  onUpdateBranch,
+  onQuotaRefresh,
 }: MobileSidebarDrawerProps) {
   const [removeModalRepo, setRemoveModalRepo] = useState<Repo | null>(null)
+  const [newBranchOpen, setNewBranchOpen] = useState(false)
+  const [newBranchName, setNewBranchName] = useState("")
+  const [branchPlaceholder, setBranchPlaceholder] = useState(() => randomBranchName())
+  const [newBranchBase, setNewBranchBase] = useState("")
+  const [creating, setCreating] = useState(false)
+  const [createError, setCreateError] = useState<string | null>(null)
+  const [githubBranches, setGithubBranches] = useState<string[]>([])
+  const [githubBranchesLoading, setGithubBranchesLoading] = useState(false)
+  const newBranchInputRef = useRef<HTMLInputElement>(null)
 
   const activeRepo = repos.find(r => r.id === activeRepoId)
+
+  // Focus input when new branch form opens
+  useEffect(() => {
+    if (newBranchOpen && newBranchInputRef.current) {
+      setTimeout(() => newBranchInputRef.current?.focus(), 100)
+    }
+  }, [newBranchOpen])
+
+  const fetchGithubBranches = useCallback(async () => {
+    if (!activeRepo) return
+    setGithubBranchesLoading(true)
+    try {
+      const res = await fetch(
+        `/api/github/branches?owner=${encodeURIComponent(activeRepo.owner)}&repo=${encodeURIComponent(activeRepo.name)}`
+      )
+      const data = await res.json()
+      setGithubBranches(data.branches || [])
+    } catch {
+      setGithubBranches([])
+    } finally {
+      setGithubBranchesLoading(false)
+    }
+  }, [activeRepo])
+
+  const handleCreateBranch = useCallback(async () => {
+    if (!activeRepo || !onAddBranch || !onUpdateBranch) return
+
+    const branchName = newBranchName.trim() || branchPlaceholder
+    if (!branchName || creating) return
+
+    // Validate branch name
+    if (/\s/.test(branchName)) {
+      setCreateError("Branch name cannot contain spaces")
+      return
+    }
+    if (/[~^:?*\[\\]/.test(branchName)) {
+      setCreateError("Branch name contains invalid characters")
+      return
+    }
+    if (branchName.startsWith("-") || branchName.startsWith(".") || branchName.endsWith(".") || branchName.endsWith(".lock")) {
+      setCreateError("Invalid branch name format")
+      return
+    }
+    if (branchName.includes("..") || branchName.includes("@{")) {
+      setCreateError("Branch name contains invalid sequence")
+      return
+    }
+    // Check for duplicates in local branches
+    if (activeRepo.branches.some((b) => b.name === branchName)) {
+      setCreateError("A branch with this name already exists")
+      return
+    }
+    // Check for duplicates in GitHub remote branches
+    if (githubBranches.includes(branchName)) {
+      setCreateError("A branch with this name already exists on GitHub")
+      return
+    }
+
+    setCreating(true)
+    setCreateError(null)
+
+    const branchId = generateId()
+    const baseBranch = newBranchBase || activeRepo.defaultBranch || "main"
+    const branch: Branch = {
+      id: branchId,
+      name: branchName,
+      agent: "claude-code",
+      messages: [],
+      status: "creating",
+      lastActivity: "now",
+      lastActivityTs: Date.now(),
+      baseBranch,
+    }
+
+    onAddBranch(branch)
+    setNewBranchOpen(false)
+    setNewBranchName("")
+    onOpenChange(false) // Close drawer after starting creation
+
+    try {
+      const res = await fetch("/api/sandbox/create", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          repoOwner: activeRepo.owner,
+          repoName: activeRepo.name,
+          baseBranch,
+          newBranch: branchName,
+        }),
+      })
+
+      if (!res.ok) {
+        let message = `Failed to create branch (${res.status})`
+        try {
+          const data = await res.json()
+          message = data.error || data.message || message
+        } catch {
+          // Ignore parse errors and use fallback message
+        }
+        throw new Error(message)
+      }
+
+      if (!res.body) {
+        throw new Error("Failed to create branch: empty server response")
+      }
+
+      const reader = res.body.getReader()
+      const decoder = new TextDecoder()
+      let buffer = ""
+      let hasTerminalEvent = false
+
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+
+        buffer += decoder.decode(value, { stream: true })
+        const parts = buffer.split("\n\n")
+        buffer = parts.pop()!
+
+        for (const part of parts) {
+          for (const line of part.split("\n")) {
+            if (!line.startsWith("data: ")) continue
+            try {
+              const data = JSON.parse(line.slice(6))
+              if (data.type === "done") {
+                hasTerminalEvent = true
+                onUpdateBranch(branchId, {
+                  id: data.branchId,
+                  status: "idle",
+                  sandboxId: data.sandboxId,
+                  contextId: data.contextId,
+                  previewUrlPattern: data.previewUrlPattern,
+                  startCommit: data.startCommit,
+                })
+                onQuotaRefresh?.()
+              } else if (data.type === "error") {
+                hasTerminalEvent = true
+                onUpdateBranch(branchId, { status: "error" })
+                setCreateError(data.message)
+              }
+            } catch {}
+          }
+        }
+      }
+
+      if (!hasTerminalEvent) {
+        throw new Error("Branch creation did not complete. Please try again.")
+      }
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : "Failed to create branch"
+      onUpdateBranch(branchId, { status: "error" })
+      setCreateError(message)
+    } finally {
+      setCreating(false)
+    }
+  }, [activeRepo, newBranchName, branchPlaceholder, newBranchBase, creating, githubBranches, onAddBranch, onUpdateBranch, onQuotaRefresh, onOpenChange])
 
   const handleSelectRepo = (repoId: string) => {
     onSelectRepo(repoId)
@@ -211,12 +395,93 @@ export function MobileSidebarDrawer({
                 <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
                   Branches
                 </span>
-                {activeRepo && (
-                  <span className="text-[10px] text-muted-foreground">
-                    {activeRepo.branches.length}
-                  </span>
-                )}
+                <div className="flex items-center gap-2">
+                  {activeRepo && (
+                    <span className="text-[10px] text-muted-foreground">
+                      {activeRepo.branches.length}
+                    </span>
+                  )}
+                  {activeRepo && onAddBranch && (
+                    <button
+                      onClick={() => {
+                        setNewBranchOpen(true)
+                        setBranchPlaceholder(randomBranchName())
+                        setNewBranchBase(activeRepo.defaultBranch || "main")
+                        setCreateError(null)
+                        fetchGithubBranches()
+                      }}
+                      className="flex h-5 w-5 cursor-pointer items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
+                    >
+                      <Plus className="h-3.5 w-3.5" />
+                    </button>
+                  )}
+                </div>
               </div>
+
+              {/* New Branch Form */}
+              {newBranchOpen && activeRepo && (
+                <div className="mx-3 mb-3 rounded-lg border border-border bg-secondary/50 p-3">
+                  <div className="flex flex-col gap-2">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-medium text-foreground">New branch</span>
+                      <button
+                        onClick={() => {
+                          setNewBranchOpen(false)
+                          setCreateError(null)
+                        }}
+                        className="flex h-5 w-5 cursor-pointer items-center justify-center rounded text-muted-foreground hover:text-foreground"
+                      >
+                        <X className="h-3 w-3" />
+                      </button>
+                    </div>
+                    <Input
+                      ref={newBranchInputRef}
+                      placeholder={branchPlaceholder}
+                      value={newBranchName}
+                      onChange={(e) => setNewBranchName(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") handleCreateBranch()
+                        if (e.key === "Escape") {
+                          setNewBranchOpen(false)
+                          setCreateError(null)
+                        }
+                      }}
+                      className="h-8 bg-background border-border text-xs font-mono placeholder:text-muted-foreground/40"
+                      disabled={creating}
+                    />
+                    <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+                      <span>from</span>
+                      <select
+                        value={newBranchBase}
+                        onChange={(e) => setNewBranchBase(e.target.value)}
+                        className="bg-background rounded px-1.5 py-0.5 text-[11px] text-foreground border border-border max-w-[150px] truncate"
+                        disabled={creating || githubBranchesLoading}
+                      >
+                        {githubBranchesLoading ? (
+                          <option>Loading...</option>
+                        ) : githubBranches.length > 0 ? (
+                          githubBranches.map((b) => (
+                            <option key={b} value={b}>{b}</option>
+                          ))
+                        ) : (
+                          <option value={activeRepo.defaultBranch || "main"}>{activeRepo.defaultBranch || "main"}</option>
+                        )}
+                      </select>
+                    </div>
+                    {createError && (
+                      <p className="text-[11px] text-red-400">{createError}</p>
+                    )}
+                    <button
+                      onClick={handleCreateBranch}
+                      disabled={creating}
+                      className="flex cursor-pointer items-center justify-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-50"
+                    >
+                      {creating && <Loader2 className="h-3 w-3 animate-spin" />}
+                      Create branch
+                    </button>
+                  </div>
+                </div>
+              )}
 
               {!activeRepo ? (
                 <div className="flex flex-col items-center justify-center gap-2 py-8 px-4 text-muted-foreground">
