@@ -70,11 +70,24 @@ export function AddRepoModal({ open, onClose, githubUser, existingRepos, onAddRe
   if (!open) return null
 
   function parseGitHubUrl(input: string): { owner: string; name: string } | null {
-    const trimmed = input.trim().replace(/\.git$/, "").replace(/\/$/, "")
-    const urlMatch = trimmed.match(/github\.com\/([^/]+)\/([^/]+)/)
+    let trimmed = input.trim()
+
+    // Handle SSH URLs: git@github.com:owner/repo.git
+    const sshMatch = trimmed.match(/^git@github\.com:([^/]+)\/([^/]+?)(?:\.git)?$/)
+    if (sshMatch) return { owner: sshMatch[1], name: sshMatch[2] }
+
+    // Remove trailing .git and /
+    trimmed = trimmed.replace(/\.git$/, "").replace(/\/$/, "")
+
+    // Handle HTTPS URLs: https://github.com/owner/repo or github.com/owner/repo
+    // Extract just the owner/repo part, ignoring paths, query params, and fragments
+    const urlMatch = trimmed.match(/github\.com\/([^/?#]+)\/([^/?#]+)/)
     if (urlMatch) return { owner: urlMatch[1], name: urlMatch[2] }
-    const shortMatch = trimmed.match(/^([^/]+)\/([^/]+)$/)
+
+    // Handle shorthand: owner/repo
+    const shortMatch = trimmed.match(/^([^/?#]+)\/([^/?#]+)$/)
     if (shortMatch) return { owner: shortMatch[1], name: shortMatch[2] }
+
     return null
   }
 
@@ -103,7 +116,7 @@ export function AddRepoModal({ open, onClose, githubUser, existingRepos, onAddRe
   async function handleAddByUrl() {
     const parsed = parseGitHubUrl(url)
     if (!parsed) {
-      setError("Invalid format. Use https://github.com/owner/repo or owner/repo")
+      setError("Invalid format. Use https://github.com/owner/repo, git@github.com:owner/repo, or owner/repo")
       return
     }
     setLoading(true)
