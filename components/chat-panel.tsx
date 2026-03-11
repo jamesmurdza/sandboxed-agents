@@ -1,8 +1,7 @@
 "use client"
 
 import { cn } from "@/lib/utils"
-import type { Branch, Message, ToolCall, ContentBlock } from "@/lib/types"
-import { agentLabels } from "@/lib/types"
+import type { Branch, Message, ToolCall } from "@/lib/types"
 import { generateId } from "@/lib/store"
 import {
   FileText,
@@ -11,7 +10,6 @@ import {
   Search,
   Terminal,
   GitPullRequest,
-  ChevronDown,
   Send,
   Loader2,
   GitMerge,
@@ -31,7 +29,7 @@ import {
   Play,
   Pause,
 } from "lucide-react"
-import { useState, useRef, useEffect, useCallback } from "react"
+import { useRef, useEffect, useCallback } from "react"
 import Markdown from "react-markdown"
 import remarkGfm from "remark-gfm"
 import {
@@ -56,6 +54,13 @@ import {
 } from "@/components/ui/select"
 import { Input } from "@/components/ui/input"
 import { DiffModal } from "@/components/diff-modal"
+
+// Import hooks
+import { useDraftSync, useExecutionPolling, useGitActions, useBranchRenaming } from "./chat/hooks"
+
+// ============================================================================
+// Sub-components
+// ============================================================================
 
 function ToolCallIcon({ tool }: { tool: string }) {
   const cls = "h-3 w-3"
@@ -99,7 +104,6 @@ function ToolCallTimeline({ toolCalls }: { toolCalls: ToolCall[] }) {
   )
 }
 
-// Render a text block with markdown
 function TextBlockContent({ text }: { text: string }) {
   return (
     <div className="rounded-lg px-4 py-2.5 text-sm leading-relaxed bg-secondary/60 text-foreground prose dark:prose-invert prose-sm max-w-none prose-p:my-1 prose-pre:my-2 prose-pre:bg-background/50 prose-pre:text-xs prose-code:text-xs prose-code:bg-background/50 prose-code:px-1 prose-code:py-0.5 prose-code:rounded prose-headings:my-2 prose-ul:my-1 prose-ol:my-1 prose-li:my-0 break-words overflow-x-auto [&_pre]:overflow-x-auto [&_code]:break-all [&_table]:block [&_table]:overflow-x-auto [&_table]:max-w-full min-w-0">
@@ -120,7 +124,6 @@ function TextBlockContent({ text }: { text: string }) {
 function MessageBubble({ message, onCommitClick, onBranchFromCommit }: { message: Message; onCommitClick?: (hash: string, msg: string) => void; onBranchFromCommit?: (hash: string) => void }) {
   const isUser = message.role === "user"
 
-  // Commit marker rendering
   if (message.commitHash) {
     return (
       <div id={`commit-${message.commitHash}`} className="group/commitrow flex items-center gap-3 py-1">
@@ -148,7 +151,6 @@ function MessageBubble({ message, onCommitClick, onBranchFromCommit }: { message
     )
   }
 
-  // Check if we have interleaved content blocks
   const hasContentBlocks = message.contentBlocks && message.contentBlocks.length > 0
 
   return (
@@ -168,14 +170,12 @@ function MessageBubble({ message, onCommitClick, onBranchFromCommit }: { message
         <span className="text-[10px] text-muted-foreground/40">{message.timestamp}</span>
       </div>
 
-      {/* Render interleaved content blocks if available */}
       {hasContentBlocks ? (
         <div className="flex flex-col gap-1 min-w-0 max-w-full">
           {message.contentBlocks!.map((block, idx) => {
             if (block.type === "text") {
               return <TextBlockContent key={idx} text={block.text} />
             } else if (block.type === "tool_calls") {
-              // Add IDs to tool calls for rendering
               const toolCallsWithIds = block.toolCalls.map((tc, tcIdx) => ({
                 ...tc,
                 id: tc.id || `tc-${idx}-${tcIdx}`,
@@ -187,7 +187,6 @@ function MessageBubble({ message, onCommitClick, onBranchFromCommit }: { message
           })}
         </div>
       ) : (
-        /* Fallback: render content then tool calls (legacy behavior) */
         <>
           <div
             className={cn(
@@ -238,6 +237,10 @@ const headerActions = [
   { icon: History, label: "Log", action: "log" },
 ]
 
+// ============================================================================
+// Main ChatPanel Component
+// ============================================================================
+
 interface ChatPanelProps {
   branch: Branch
   repoFullName: string
@@ -273,158 +276,64 @@ export function ChatPanel({
   messagesLoading = false,
   isMobile = false,
 }: ChatPanelProps) {
-  const [input, setInput] = useState(branch.draftPrompt ?? "")
-  const [renaming, setRenaming] = useState(false)
-  const [renameValue, setRenameValue] = useState("")
-  const [renameLoading, setRenameLoading] = useState(false)
-  const renameInputRef = useRef<HTMLInputElement>(null)
+  // Refs
   const scrollRef = useRef<HTMLDivElement>(null)
-  const abortControllerRef = useRef<AbortController | null>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
-  // Use the persisted startCommit from when the branch was created
-  // This ensures we have a baseline even if the page is refreshed
-  const startingCommitRef = useRef<string | null>(branch.startCommit || null)
-  const prevBranchIdRef = useRef(branch.id)
-  const prevBranchNameRef = useRef(branch.name)
-  const isNearBottomRef = useRef(true)
-  // Track current input in a ref so we can access it in cleanup/event handlers
-  const inputRef = useRef(input)
-  inputRef.current = input
-  // Track polling state for background execution
-  const pollingRef = useRef<NodeJS.Timeout | null>(null)
-  const currentExecutionIdRef = useRef<string | null>(null)
-  const currentMessageIdRef = useRef<string | null>(null)
-  const startPollingRef = useRef<(messageId: string, executionId?: string) => void>(() => {})
+  const abortControllerRef = useRef<AbortController | null>(null)
 
-  // Sync input when switching branches - save old draft then load new
-  useEffect(() => {
-    if (prevBranchIdRef.current !== branch.id) {
-      const prevBranchId = prevBranchIdRef.current
-      const prevBranchName = prevBranchNameRef.current
-      const currentInput = inputRef.current
+  // Custom hooks
+  const { input, setInput, isNearBottomRef } = useDraftSync({
+    branch,
+    onSaveDraftForBranch,
+  })
 
-      // Check if this is a real branch switch (different branch name) or just an ID update
-      // (e.g., client-side ID replaced with server-side ID after sandbox creation)
-      const isRealBranchSwitch = prevBranchName !== branch.name
+  const {
+    currentExecutionIdRef,
+    currentMessageIdRef,
+    startPolling,
+    stopPolling,
+  } = useExecutionPolling({
+    branch,
+    repoName,
+    onUpdateMessage,
+    onUpdateBranch,
+    onAddMessage,
+    onForceSave,
+    onCommitsDetected,
+  })
 
-      // Save draft for previous branch (if it has unsaved changes and switching to different branch)
-      // This updates both the database AND local state via onSaveDraftForBranch
-      if (currentInput && isRealBranchSwitch) {
-        if (onSaveDraftForBranch) {
-          // Update local state and persist to database
-          onSaveDraftForBranch(prevBranchId, currentInput)
-        } else {
-          // Fallback: just persist to database
-          fetch("/api/branches", {
-            method: "PATCH",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ branchId: prevBranchId, draftPrompt: currentInput }),
-          }).catch(() => {})
-        }
-      }
+  const gitActions = useGitActions({
+    branch,
+    repoName,
+    repoFullName,
+    repoOwner,
+    onUpdateBranch,
+    onAddMessage,
+    onToggleGitHistory,
+  })
 
-      // Only load draft from new branch if it's a real branch switch
-      // Keep current input if this is just an ID update (same branch)
-      if (isRealBranchSwitch) {
-        setInput(branch.draftPrompt ?? "")
-        // Reset scroll behavior on branch switch so we scroll to bottom
-        isNearBottomRef.current = true
-      }
+  const renaming = useBranchRenaming({
+    branch,
+    repoName,
+    repoFullName,
+    onUpdateBranch,
+    addSystemMessage: gitActions.addSystemMessage,
+  })
 
-      prevBranchIdRef.current = branch.id
-      prevBranchNameRef.current = branch.name
-    }
-  }, [branch.id, branch.name, branch.draftPrompt, onSaveDraftForBranch])
-
-  // Check sandbox status on mount / branch switch — detect stopped sandboxes and resume polling for running executions
-  // Only depends on branch identity (id/sandboxId), NOT on status/messages to avoid feedback loops
-  useEffect(() => {
-    if (!branch.sandboxId) return
-
-    // Skip if we're already polling
-    if (pollingRef.current) return
-
-    // Capture current values via refs to avoid needing them as deps
-    const currentStatus = branch.status
-    const currentMessages = branch.messages
-
-    fetch("/api/sandbox/status", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        sandboxId: branch.sandboxId,
-      }),
-    })
-      .then((r) => r.json())
-      .then((data) => {
-        if (data.state && data.state !== "started") {
-          // Sandbox is stopped
-          onUpdateBranch({ status: "stopped" })
-        } else if (currentStatus === "running" && !pollingRef.current) {
-          // Branch shows "running" - check for active execution and resume polling
-          // If messages are loaded, find the last assistant message
-          if (currentMessages && currentMessages.length > 0) {
-            const lastAssistantMsg = [...currentMessages].reverse().find(m => m.role === "assistant" && !m.commitHash)
-            if (lastAssistantMsg) {
-              currentMessageIdRef.current = lastAssistantMsg.id
-              startPollingRef.current(lastAssistantMsg.id)
-            } else {
-              onUpdateBranch({ status: "idle" })
-            }
-          } else {
-            // Messages not loaded yet - query the API to check for active execution
-            // This handles page refresh scenario where messages load asynchronously
-            fetch("/api/agent/execution/active", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ branchId: branch.id }),
-            })
-              .then((r) => r.json())
-              .then((execData) => {
-                if (execData.execution && execData.execution.status === "running") {
-                  // Found active execution - resume polling
-                  currentMessageIdRef.current = execData.execution.messageId
-                  currentExecutionIdRef.current = execData.execution.executionId
-                  startPollingRef.current(execData.execution.messageId, execData.execution.executionId)
-                } else {
-                  // No active execution found - reset to idle
-                  console.log("[chat-panel] No active execution found for running branch, resetting to idle")
-                  onUpdateBranch({ status: "idle" })
-                }
-              })
-              .catch(() => {
-                // On error, reset to idle to avoid stuck state
-                onUpdateBranch({ status: "idle" })
-              })
-          }
-        }
-      })
-      .catch(() => {})
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [branch.id, branch.sandboxId])
-
-  // Update startingCommitRef when branch changes (e.g., switching branches)
-  useEffect(() => {
-    if (branch.startCommit) {
-      startingCommitRef.current = branch.startCommit
-    }
-  }, [branch.id, branch.startCommit])
-
-  // Track scroll position to determine if user is near the bottom
+  // Track scroll position
   const handleScroll = useCallback(() => {
     if (scrollRef.current) {
       const { scrollTop, scrollHeight, clientHeight } = scrollRef.current
-      // Consider "near bottom" if within 150px of the bottom
       isNearBottomRef.current = scrollHeight - scrollTop - clientHeight < 150
     }
-  }, [])
+  }, [isNearBottomRef])
 
-  // Only auto-scroll to bottom if user is already near the bottom
+  // Auto-scroll to bottom
   useEffect(() => {
     if (scrollRef.current && isNearBottomRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight
     }
-  }, [branch.messages])
+  }, [branch.messages, isNearBottomRef])
 
   // Auto-resize textarea
   useEffect(() => {
@@ -434,257 +343,23 @@ export function ChatPanel({
     }
   }, [input])
 
-  // Save draft on page unload/close
-  useEffect(() => {
-    const handleBeforeUnload = () => {
-      if (branch.status === "creating") return
-      const currentInput = inputRef.current
-      if (currentInput && currentInput !== (branch.draftPrompt ?? "")) {
-        // Use sendBeacon for reliable delivery during page unload (POST-only endpoint)
-        navigator.sendBeacon(
-          "/api/branches/draft",
-          new Blob(
-            [JSON.stringify({ branchId: branch.id, draftPrompt: currentInput })],
-            { type: "application/json" }
-          )
-        )
-      }
-    }
-    window.addEventListener("beforeunload", handleBeforeUnload)
-    return () => window.removeEventListener("beforeunload", handleBeforeUnload)
-  }, [branch.id, branch.draftPrompt, branch.status])
-
-  // Cleanup polling on unmount
-  useEffect(() => {
-    return () => {
-      if (pollingRef.current) {
-        clearInterval(pollingRef.current)
-        pollingRef.current = null
-      }
-    }
-  }, [])
-
-  // Start polling for execution status
-  const startPolling = useCallback((messageId: string, executionId?: string) => {
-    // Clear any existing polling
-    if (pollingRef.current) {
-      clearInterval(pollingRef.current)
-    }
-
-    // Track 404 retry attempts - allow several retries before giving up
-    // This handles race conditions where the execution record isn't yet visible in the DB
-    let notFoundRetries = 0
-    const MAX_NOT_FOUND_RETRIES = 10 // Allow up to 10 retries (5 seconds at 500ms intervals)
-
-    const poll = async () => {
-      try {
-        const res = await fetch("/api/agent/status", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            messageId,
-            executionId,
-          }),
-        })
-        const data = await res.json()
-
-        if (!res.ok) {
-          // Handle "Execution not found" with retries to handle race conditions
-          if (res.status === 404 && data.error === "Execution not found") {
-            notFoundRetries++
-            console.warn(`Polling: Execution not found (attempt ${notFoundRetries}/${MAX_NOT_FOUND_RETRIES})`)
-
-            // Only stop polling after exhausting retries
-            if (notFoundRetries >= MAX_NOT_FOUND_RETRIES) {
-              console.error("Polling error: Execution not found after max retries, stopping")
-              if (pollingRef.current) {
-                clearInterval(pollingRef.current)
-                pollingRef.current = null
-              }
-              currentExecutionIdRef.current = null
-              currentMessageIdRef.current = null
-              // Reset branch status to idle since there's no valid execution
-              onUpdateBranch({ status: "idle" })
-            }
-            // Don't return early - let it retry on next interval
-            return
-          }
-          // For other errors, log but don't stop polling
-          console.error("Polling error:", data.error)
-          return
-        }
-
-        // Reset retry counter on successful response
-        notFoundRetries = 0
-
-        // Update message content
-        if (data.content || (data.toolCalls && data.toolCalls.length > 0) || (data.contentBlocks && data.contentBlocks.length > 0)) {
-          const toolCallsWithIds = (data.toolCalls || []).map((tc: { tool: string; summary: string }, idx: number) => ({
-            id: `tc-${idx}`,
-            tool: tc.tool,
-            summary: tc.summary,
-            timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
-          }))
-          // Process contentBlocks with IDs for tool calls
-          const contentBlocksWithIds = (data.contentBlocks || []).map((block: { type: string; text?: string; toolCalls?: Array<{ tool: string; summary: string }> }, blockIdx: number) => {
-            if (block.type === "tool_calls" && block.toolCalls) {
-              return {
-                type: "tool_calls" as const,
-                toolCalls: block.toolCalls.map((tc, tcIdx) => ({
-                  id: `tc-${blockIdx}-${tcIdx}`,
-                  tool: tc.tool,
-                  summary: tc.summary,
-                  timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
-                })),
-              }
-            }
-            return block
-          })
-          onUpdateMessage(messageId, {
-            content: data.content || "",
-            toolCalls: toolCallsWithIds,
-            contentBlocks: contentBlocksWithIds.length > 0 ? contentBlocksWithIds : undefined,
-          })
-        }
-
-        // Update session ID if provided
-        if (data.sessionId) {
-          onUpdateBranch({ sessionId: data.sessionId })
-        }
-
-        // Check if completed or error
-        if (data.status === "completed" || data.status === "error") {
-          // Stop polling
-          if (pollingRef.current) {
-            clearInterval(pollingRef.current)
-            pollingRef.current = null
-          }
-          currentExecutionIdRef.current = null
-          currentMessageIdRef.current = null
-
-          // Add error to content if present
-          if (data.status === "error" && data.error) {
-            onUpdateMessage(messageId, {
-              content: data.content ? `${data.content}\n\nError: ${data.error}` : `Error: ${data.error}`,
-            })
-          }
-
-          // Update branch status
-          onUpdateBranch({ status: "idle", lastActivity: "now", lastActivityTs: Date.now() })
-          onForceSave()
-
-          // Check for new commits
-          if (branch.sandboxId) {
-            try {
-              await fetch("/api/sandbox/git", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({
-                  sandboxId: branch.sandboxId,
-                  repoPath: `/home/daytona/${repoName}`,
-                  action: "auto-commit-push",
-                  branchName: branch.name,
-                }),
-              })
-
-              // If we don't have a starting commit, skip detection entirely
-              // (This shouldn't happen for new branches, but handles legacy branches)
-              if (!startingCommitRef.current) {
-                console.log("[commit-detection] No starting commit, skipping detection")
-              } else {
-                // Fetch only commits since our starting point using git log range
-                const logRes = await fetch("/api/sandbox/git", {
-                  method: "POST",
-                  headers: { "Content-Type": "application/json" },
-                  body: JSON.stringify({
-                    sandboxId: branch.sandboxId,
-                    repoPath: `/home/daytona/${repoName}`,
-                    action: "log",
-                    sinceCommit: startingCommitRef.current,
-                  }),
-                })
-                const logData = await logRes.json()
-                const allCommits: { shortHash: string; message: string }[] = logData.commits || []
-
-                console.log("[commit-detection] startingCommitRef:", startingCommitRef.current)
-                console.log("[commit-detection] commits since start:", allCommits.map(c => c.shortHash))
-
-                // Filter out commits already shown in the chat
-                const chatCommits = new Set(branch.messages.filter((m) => m.commitHash).map((m) => m.commitHash))
-                const newCommits = allCommits.filter(c => !chatCommits.has(c.shortHash))
-
-                console.log("[commit-detection] newCommits count:", newCommits.length)
-
-                // Add new commits to the chat (reverse to show oldest first)
-                for (const c of [...newCommits].reverse()) {
-                  onAddMessage({
-                    id: generateId(),
-                    role: "assistant",
-                    content: "",
-                    timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
-                    commitHash: c.shortHash,
-                    commitMessage: c.message,
-                  })
-                }
-                if (newCommits.length > 0) {
-                  // Update the starting commit to the new HEAD so future detections work correctly
-                  startingCommitRef.current = allCommits[0].shortHash
-                  onCommitsDetected?.()
-                }
-              }
-            } catch {}
-          }
-
-          // Play notification sound
-          try {
-            const ctx = new AudioContext()
-            const osc = ctx.createOscillator()
-            const gain = ctx.createGain()
-            osc.connect(gain)
-            gain.connect(ctx.destination)
-            osc.frequency.value = 880
-            osc.type = "sine"
-            gain.gain.setValueAtTime(0.15, ctx.currentTime)
-            gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.3)
-            osc.start(ctx.currentTime)
-            osc.stop(ctx.currentTime + 0.3)
-          } catch {}
-        }
-      } catch (err) {
-        console.error("Polling failed:", err)
-      }
-    }
-
-    // Start polling after a short delay to allow DB write to commit, then every 500ms
-    // The 150ms initial delay helps avoid race conditions where the execution record
-    // isn't yet visible in the database
-    setTimeout(() => {
-      poll()
-      pollingRef.current = setInterval(poll, 500)
-    }, 150)
-  }, [branch.sandboxId, branch.name, branch.messages, repoName, onUpdateMessage, onUpdateBranch, onAddMessage, onForceSave, onCommitsDetected])
-  startPollingRef.current = startPolling
-
+  // Send message handler
   const handleSend = useCallback(async () => {
     const prompt = input.trim()
     if (!prompt || branch.status === "running" || branch.status === "creating") return
     if (!branch.sandboxId) return
 
-    // Add user message
     const userMsg: Message = {
       id: generateId(),
       role: "user",
       content: prompt,
       timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
     }
-    // Await user message save to ensure it persists before continuing
     await onAddMessage(userMsg)
     setInput("")
 
-    // Set branch to running and clear draft
     onUpdateBranch({ status: "running", draftPrompt: "" })
 
-    // Add placeholder assistant message and get its DB ID
     const assistantMsg: Message = {
       id: generateId(),
       role: "assistant",
@@ -696,7 +371,6 @@ export function ChatPanel({
     currentMessageIdRef.current = messageId
 
     try {
-      // Start background execution
       const response = await fetch("/api/agent/execute", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -716,10 +390,7 @@ export function ChatPanel({
 
       const { executionId } = await response.json()
       currentExecutionIdRef.current = executionId
-
-      // Start polling for updates
       startPolling(messageId, executionId)
-
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : "Unknown error"
       onUpdateMessage(messageId, { content: `Error: ${message}` })
@@ -727,315 +398,21 @@ export function ChatPanel({
       currentMessageIdRef.current = null
       currentExecutionIdRef.current = null
     }
-  }, [input, branch, repoName, onAddMessage, onUpdateMessage, onUpdateBranch, startPolling])
+  }, [input, branch, repoName, onAddMessage, onUpdateMessage, onUpdateBranch, startPolling, currentMessageIdRef, currentExecutionIdRef, setInput])
 
-  function handleStop() {
-    // Stop polling
-    if (pollingRef.current) {
-      clearInterval(pollingRef.current)
-      pollingRef.current = null
-    }
-
-    // Update message with stopped indicator
-    if (currentMessageIdRef.current) {
-      // Get current content and append stopped message
-      const lastMsg = branch.messages.find(m => m.id === currentMessageIdRef.current)
-      const currentContent = lastMsg?.content || ""
-      onUpdateMessage(currentMessageIdRef.current, {
-        content: currentContent ? `${currentContent}\n\n[Stopped by user]` : "[Stopped by user]"
-      })
-    }
-
-    // Reset state
-    currentExecutionIdRef.current = null
-    currentMessageIdRef.current = null
-    onUpdateBranch({ status: "idle" })
-
-    // Legacy: also abort any SSE connection
+  // Stop handler
+  const handleStop = useCallback(() => {
+    stopPolling()
     abortControllerRef.current?.abort()
-  }
+  }, [stopPolling])
 
-  async function handleRename() {
-    const newName = renameValue.trim()
-    if (!newName || newName === branch.name || renameLoading) return
-    setRenameLoading(true)
-    try {
-      const [owner, repo] = repoFullName.split("/")
-      const res = await fetch("/api/sandbox/git", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          sandboxId: branch.sandboxId,
-          repoPath: `/home/daytona/${repoName}`,
-          action: "rename-branch",
-          currentBranch: branch.name,
-          newBranchName: newName,
-          repoOwner: owner,
-          repoApiName: repo,
-        }),
-      })
-      const data = await res.json()
-      if (!res.ok) throw new Error(data.error)
-      onUpdateBranch({ name: newName })
-      setRenaming(false)
-    } catch (err: unknown) {
-      addSystemMessage(`Rename failed: ${err instanceof Error ? err.message : "Unknown error"}`)
-      setRenaming(false)
-    } finally {
-      setRenameLoading(false)
-    }
-  }
-
-  function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
+  // Keyboard handler
+  const handleKeyDown = useCallback((e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault()
       handleSend()
     }
-  }
-
-  const [actionLoading, setActionLoading] = useState<string | null>(null)
-  const [branchPickerModal, setBranchPickerModal] = useState<{ action: "merge" | "rebase" | "diff" } | null>(null)
-  const [remoteBranches, setRemoteBranches] = useState<string[]>([])
-  const [selectedBranch, setSelectedBranch] = useState("")
-  const [branchesLoading, setBranchesLoading] = useState(false)
-
-  async function fetchBranches() {
-    setBranchesLoading(true)
-    try {
-      const res = await fetch(
-        `/api/github/branches?owner=${encodeURIComponent(repoOwner)}&repo=${encodeURIComponent(repoName)}`
-      )
-      const data = await res.json()
-      const branches = (data.branches || []).filter((b: string) => b !== branch.name)
-      setRemoteBranches(branches)
-      setSelectedBranch(branches.includes(branch.baseBranch) ? branch.baseBranch : branches[0] || "")
-    } catch {
-      setRemoteBranches([])
-    } finally {
-      setBranchesLoading(false)
-    }
-  }
-
-  function openBranchPicker(action: "merge" | "rebase" | "diff") {
-    setBranchPickerModal({ action })
-    setSelectedBranch("")
-    fetchBranches()
-  }
-
-  const [sandboxToggleLoading, setSandboxToggleLoading] = useState(false)
-
-  async function handleSandboxToggle() {
-    if (!branch.sandboxId || sandboxToggleLoading) return
-    const isStopped = branch.status === "stopped"
-    setSandboxToggleLoading(true)
-    try {
-      const res = await fetch("/api/sandbox/status", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          sandboxId: branch.sandboxId,
-          action: isStopped ? "start" : "stop",
-        }),
-      })
-      const data = await res.json()
-      if (!res.ok) throw new Error(data.error)
-      onUpdateBranch({ status: isStopped ? "idle" : "stopped" })
-    } catch {
-      // ignore
-    } finally {
-      setSandboxToggleLoading(false)
-    }
-  }
-
-  function addSystemMessage(content: string) {
-    onAddMessage({
-      id: generateId(),
-      role: "assistant",
-      content,
-      timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
-    })
-  }
-
-  async function handleCreatePR() {
-    // If PR already exists, just open it
-    if (branch.prUrl) {
-      window.open(branch.prUrl, "_blank")
-      return
-    }
-    const [owner, repo] = repoFullName.split("/")
-    setActionLoading("create-pr")
-    try {
-      const res = await fetch("/api/github/pr", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          owner,
-          repo,
-          head: branch.name,
-          base: branch.baseBranch,
-        }),
-      })
-      const data = await res.json()
-      if (!res.ok) throw new Error(data.error)
-      onUpdateBranch({ prUrl: data.url })
-      window.open(data.url, "_blank")
-    } catch {
-      // Silently fail
-    } finally {
-      setActionLoading(null)
-    }
-  }
-
-  async function handleMerge() {
-    if (!selectedBranch) return
-    setBranchPickerModal(null)
-    setActionLoading("merge")
-    try {
-      const res = await fetch("/api/sandbox/git", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          sandboxId: branch.sandboxId,
-          repoPath: `/home/daytona/${repoName}`,
-          action: "merge",
-          targetBranch: selectedBranch,
-          currentBranch: branch.name,
-        }),
-      })
-      const data = await res.json()
-      if (!res.ok) throw new Error(data.error)
-      addSystemMessage(`Merged **${branch.name}** into **${selectedBranch}** and pushed.`)
-    } catch (err: unknown) {
-      addSystemMessage(`Merge failed: ${err instanceof Error ? err.message : "Unknown error"}`)
-    } finally {
-      setActionLoading(null)
-    }
-  }
-
-  async function handleRebase() {
-    if (!selectedBranch) return
-    const [owner, repo] = repoFullName.split("/")
-    setBranchPickerModal(null)
-    setActionLoading("rebase")
-    try {
-      const res = await fetch("/api/sandbox/git", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          sandboxId: branch.sandboxId,
-          repoPath: `/home/daytona/${repoName}`,
-          action: "rebase",
-          targetBranch: selectedBranch,
-          currentBranch: branch.name,
-          repoOwner: owner,
-          repoApiName: repo,
-        }),
-      })
-      const data = await res.json()
-      if (!res.ok) throw new Error(data.error)
-      addSystemMessage(`Rebased **${branch.name}** onto **${selectedBranch}** and force-pushed.`)
-    } catch (err: unknown) {
-      addSystemMessage(`Rebase failed: ${err instanceof Error ? err.message : "Unknown error"}`)
-    } finally {
-      setActionLoading(null)
-    }
-  }
-
-  const [resetConfirmOpen, setResetConfirmOpen] = useState(false)
-
-  async function handleReset() {
-    setResetConfirmOpen(false)
-    setActionLoading("reset")
-    try {
-      const res = await fetch("/api/sandbox/git", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          sandboxId: branch.sandboxId,
-          repoPath: `/home/daytona/${repoName}`,
-          action: "reset",
-        }),
-      })
-      const data = await res.json()
-      if (!res.ok) throw new Error(data.error)
-      addSystemMessage("Reset to HEAD — all uncommitted changes discarded.")
-    } catch (err: unknown) {
-      addSystemMessage(`Reset failed: ${err instanceof Error ? err.message : "Unknown error"}`)
-    } finally {
-      setActionLoading(null)
-    }
-  }
-
-  async function handleHeaderAction(action: string) {
-    if (action === "log") {
-      onToggleGitHistory()
-      return
-    }
-    if (action === "create-pr") {
-      handleCreatePR()
-      return
-    }
-    if (action === "merge") {
-      openBranchPicker("merge")
-      return
-    }
-    if (action === "rebase") {
-      openBranchPicker("rebase")
-      return
-    }
-    if (action === "reset") {
-      setResetConfirmOpen(true)
-      return
-    }
-    if (action === "tag") {
-      setTagPopoverOpen(true)
-      return
-    }
-    if (action === "diff") {
-      setDiffModalOpen(true)
-      return
-    }
-  }
-
-  const [diffModalOpen, setDiffModalOpen] = useState(false)
-  const [commitDiffHash, setCommitDiffHash] = useState<string | null>(null)
-  const [commitDiffMessage, setCommitDiffMessage] = useState<string | null>(null)
-
-  const [tagPopoverOpen, setTagPopoverOpen] = useState(false)
-  const [tagNameInput, setTagNameInput] = useState("")
-  const [rsyncModalOpen, setRsyncModalOpen] = useState(false)
-  const [rsyncCommand, setRsyncCommand] = useState("")
-  const [rsyncCopied, setRsyncCopied] = useState(false)
-
-  async function handleTag() {
-    const name = tagNameInput.trim()
-    if (!name) return
-    const [owner, repo] = repoFullName.split("/")
-    setTagPopoverOpen(false)
-    setTagNameInput("")
-    setActionLoading("tag")
-    try {
-      const res = await fetch("/api/sandbox/git", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          sandboxId: branch.sandboxId,
-          repoPath: `/home/daytona/${repoName}`,
-          action: "tag",
-          tagName: name,
-          repoOwner: owner,
-          repoApiName: repo,
-        }),
-      })
-      const data = await res.json()
-      if (!res.ok) throw new Error(data.error)
-      addSystemMessage(`Tag **${name}** created and pushed.`)
-    } catch (err: unknown) {
-      addSystemMessage(`Tag failed: ${err instanceof Error ? err.message : "Unknown error"}`)
-    } finally {
-      setActionLoading(null)
-    }
-  }
+  }, [handleSend])
 
   const canSend = input.trim() && branch.status !== "running" && branch.status !== "creating" && branch.sandboxId
   const isReady = branch.sandboxId && (branch.status !== "creating")
@@ -1047,66 +424,56 @@ export function ChatPanel({
         "flex min-w-0 flex-1 flex-col bg-background overflow-hidden",
         isMobile ? "h-full w-full max-w-full" : "min-h-0"
       )}>
-        {/* Header - hidden on mobile since MobileHeader handles it */}
+        {/* Header - hidden on mobile */}
         {!isMobile && (
-        <header className={cn(
-          "flex shrink-0 items-center gap-2 border-b border-border",
-          "px-3 py-2.5 sm:px-4"
-        )}>
-          {/* Branch name section - hidden on mobile since it's in the parent header */}
-          {!isMobile && (
-            <>
-              {renaming ? (
-                <div className="flex items-center gap-1.5 min-w-0 ml-2.5">
-                  <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor" className="shrink-0 text-muted-foreground">
-                    <path fillRule="evenodd" d="M11.75 2.5a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5zm-2.25.75a2.25 2.25 0 1 1 3 2.122V6A2.5 2.5 0 0 1 10 8.5H6a1 1 0 0 0-1 1v1.128a2.251 2.251 0 1 1-1.5 0V5.372a2.25 2.25 0 1 1 1.5 0v1.836A2.493 2.493 0 0 1 6 7h4a1 1 0 0 0 1-1v-.628A2.25 2.25 0 0 1 9.5 3.25zM4.25 12a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5zM3.5 3.25a.75.75 0 1 1 1.5 0 .75.75 0 0 1-1.5 0z" />
-                  </svg>
-                  <div className="inline-grid min-w-0 [&>*]:[grid-area:1/1]">
-                    <span className="invisible whitespace-pre px-1.5 text-xs font-mono">{renameValue || " "}</span>
-                    <input
-                      ref={renameInputRef}
-                      value={renameValue}
-                      onChange={(e) => setRenameValue(e.target.value)}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter") handleRename()
-                        if (e.key === "Escape") setRenaming(false)
-                      }}
-                      onBlur={() => { if (!renameLoading) setRenaming(false) }}
-                      disabled={renameLoading}
-                      className="h-6 bg-transparent border border-border/30 rounded px-1.5 text-xs font-mono text-foreground focus:outline-none focus:border-border/60 min-w-[3ch]"
-                      autoFocus
-                    />
-                  </div>
-                  {renameLoading && <Loader2 className="h-3 w-3 animate-spin text-muted-foreground shrink-0" />}
-                </div>
-              ) : (
-                <button
-                  onClick={() => { setRenaming(true); setRenameValue(branch.name) }}
-                  className="flex items-center gap-1.5 min-w-0 ml-2.5 py-1 cursor-pointer group/branch"
-                >
-                  <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor" className="shrink-0 text-muted-foreground">
-                    <path fillRule="evenodd" d="M11.75 2.5a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5zm-2.25.75a2.25 2.25 0 1 1 3 2.122V6A2.5 2.5 0 0 1 10 8.5H6a1 1 0 0 0-1 1v1.128a2.251 2.251 0 1 1-1.5 0V5.372a2.25 2.25 0 1 1 1.5 0v1.836A2.493 2.493 0 0 1 6 7h4a1 1 0 0 0 1-1v-.628A2.25 2.25 0 0 1 9.5 3.25zM4.25 12a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5zM3.5 3.25a.75.75 0 1 1 1.5 0 .75.75 0 0 1-1.5 0z" />
-                  </svg>
-                  <span className="truncate text-xs font-mono text-muted-foreground">{branch.name}</span>
-                  <Pencil className="h-2.5 w-2.5 shrink-0 text-muted-foreground/0 group-hover/branch:text-muted-foreground transition-colors" />
-                </button>
-              )}
-            </>
+        <header className="flex shrink-0 items-center gap-2 border-b border-border px-3 py-2.5 sm:px-4">
+          {/* Branch name section */}
+          {renaming.renaming ? (
+            <div className="flex items-center gap-1.5 min-w-0 ml-2.5">
+              <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor" className="shrink-0 text-muted-foreground">
+                <path fillRule="evenodd" d="M11.75 2.5a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5zm-2.25.75a2.25 2.25 0 1 1 3 2.122V6A2.5 2.5 0 0 1 10 8.5H6a1 1 0 0 0-1 1v1.128a2.251 2.251 0 1 1-1.5 0V5.372a2.25 2.25 0 1 1 1.5 0v1.836A2.493 2.493 0 0 1 6 7h4a1 1 0 0 0 1-1v-.628A2.25 2.25 0 0 1 9.5 3.25zM4.25 12a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5zM3.5 3.25a.75.75 0 1 1 1.5 0 .75.75 0 0 1-1.5 0z" />
+              </svg>
+              <div className="inline-grid min-w-0 [&>*]:[grid-area:1/1]">
+                <span className="invisible whitespace-pre px-1.5 text-xs font-mono">{renaming.renameValue || " "}</span>
+                <input
+                  ref={renaming.renameInputRef}
+                  value={renaming.renameValue}
+                  onChange={(e) => renaming.setRenameValue(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") renaming.handleRename()
+                    if (e.key === "Escape") renaming.cancelRenaming()
+                  }}
+                  onBlur={renaming.cancelRenaming}
+                  disabled={renaming.renameLoading}
+                  className="h-6 bg-transparent border border-border/30 rounded px-1.5 text-xs font-mono text-foreground focus:outline-none focus:border-border/60 min-w-[3ch]"
+                  autoFocus
+                />
+              </div>
+              {renaming.renameLoading && <Loader2 className="h-3 w-3 animate-spin text-muted-foreground shrink-0" />}
+            </div>
+          ) : (
+            <button
+              onClick={renaming.startRenaming}
+              className="flex items-center gap-1.5 min-w-0 ml-2.5 py-1 cursor-pointer group/branch"
+            >
+              <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor" className="shrink-0 text-muted-foreground">
+                <path fillRule="evenodd" d="M11.75 2.5a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5zm-2.25.75a2.25 2.25 0 1 1 3 2.122V6A2.5 2.5 0 0 1 10 8.5H6a1 1 0 0 0-1 1v1.128a2.251 2.251 0 1 1-1.5 0V5.372a2.25 2.25 0 1 1 1.5 0v1.836A2.493 2.493 0 0 1 6 7h4a1 1 0 0 0 1-1v-.628A2.25 2.25 0 0 1 9.5 3.25zM4.25 12a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5zM3.5 3.25a.75.75 0 1 1 1.5 0 .75.75 0 0 1-1.5 0z" />
+              </svg>
+              <span className="truncate text-xs font-mono text-muted-foreground">{branch.name}</span>
+              <Pencil className="h-2.5 w-2.5 shrink-0 text-muted-foreground/0 group-hover/branch:text-muted-foreground transition-colors" />
+            </button>
           )}
 
-          <div className={cn(
-            "flex items-center gap-0.5 shrink-0 overflow-x-auto",
-            isMobile ? "flex-1 justify-end" : "ml-auto"
-          )}>
+          <div className="flex items-center gap-0.5 shrink-0 overflow-x-auto ml-auto">
             {branch.sandboxId && (<>
               <Tooltip>
                 <TooltipTrigger asChild>
                   <button
-                    onClick={handleSandboxToggle}
-                    disabled={sandboxToggleLoading || branch.status === "running" || branch.status === "creating"}
+                    onClick={gitActions.handleSandboxToggle}
+                    disabled={gitActions.sandboxToggleLoading || branch.status === "running" || branch.status === "creating"}
                     className="flex cursor-pointer h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground disabled:opacity-30 disabled:cursor-not-allowed"
                   >
-                    {sandboxToggleLoading ? (
+                    {gitActions.sandboxToggleLoading ? (
                       <Loader2 className="h-3.5 w-3.5 animate-spin" />
                     ) : branch.status === "stopped" ? (
                       <Play className="h-3.5 w-3.5" />
@@ -1138,29 +505,7 @@ export function ChatPanel({
               <Tooltip>
                 <TooltipTrigger asChild>
                   <button
-                    onClick={async () => {
-                      try {
-                        const res = await fetch("/api/sandbox/ssh", {
-                          method: "POST",
-                          headers: { "Content-Type": "application/json" },
-                          body: JSON.stringify({
-                            sandboxId: branch.sandboxId,
-                          }),
-                        })
-                        const data = await res.json()
-                        if (!res.ok) throw new Error(data.error)
-                        const cmd = data.sshCommand as string
-                        const userHostMatch = cmd.match(/(\S+@\S+)/)
-                        const portMatch = cmd.match(/-p\s+(\d+)/)
-                        if (userHostMatch) {
-                          const userHost = userHostMatch[1]
-                          const port = portMatch ? portMatch[1] : "22"
-                          const host = port !== "22" ? `${userHost}:${port}` : userHost
-                          const remotePath = `/home/daytona/${repoName}`
-                          window.open(`vscode://vscode-remote/ssh-remote+${host}${remotePath}`, "_blank")
-                        }
-                      } catch {}
-                    }}
+                    onClick={gitActions.handleVSCodeClick}
                     className="flex cursor-pointer h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
                   >
                     <svg width="14" height="14" viewBox="0 0 100 100" fill="none" stroke="currentColor" strokeWidth="7" strokeLinejoin="round">
@@ -1173,33 +518,7 @@ export function ChatPanel({
               <Tooltip>
                 <TooltipTrigger asChild>
                   <button
-                    onClick={async () => {
-                      try {
-                        const res = await fetch("/api/sandbox/ssh", {
-                          method: "POST",
-                          headers: { "Content-Type": "application/json" },
-                          body: JSON.stringify({
-                            sandboxId: branch.sandboxId,
-                          }),
-                        })
-                        const data = await res.json()
-                        if (!res.ok) throw new Error(data.error)
-                        const cmd = data.sshCommand as string
-                        const userHostMatch = cmd.match(/(\S+@\S+)/)
-                        const portMatch = cmd.match(/-p\s+(\d+)/)
-                        if (userHostMatch) {
-                          const userHost = userHostMatch[1]
-                          const port = portMatch ? portMatch[1] : "22"
-                          const [owner, repo] = repoFullName.split("/")
-                          const safeBranch = branch.name.replace(/[^a-zA-Z0-9._-]/g, "-")
-                          const localDir = `./${owner}-${repo}-${safeBranch}`
-                          const rsyncCmd = `mkdir -p ${localDir} && \\\nwhile true; do \\\n  rsync -avz --filter=':- .gitignore' -e 'ssh -p ${port}' \\\n    ${userHost}:/home/daytona/${repoName}/ \\\n    ${localDir}/; \\\n  sleep 2; \\\ndone`
-                          setRsyncCommand(rsyncCmd)
-                          setRsyncCopied(false)
-                          setRsyncModalOpen(true)
-                        }
-                      } catch {}
-                    }}
+                    onClick={gitActions.handleRsyncClick}
                     className="flex cursor-pointer h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
                   >
                     <FolderSync className="h-3.5 w-3.5" />
@@ -1212,12 +531,12 @@ export function ChatPanel({
             {headerActions.map((action) => {
               const isActive = action.action === "log" && gitHistoryOpen
               const hasPR = action.action === "create-pr" && !!branch.prUrl
-              const isPRLoading = action.action === "create-pr" && actionLoading === "create-pr"
+              const isPRLoading = action.action === "create-pr" && gitActions.actionLoading === "create-pr"
               return (
                 <Tooltip key={action.label}>
                   <TooltipTrigger asChild>
                     <button
-                      onClick={() => handleHeaderAction(action.action)}
+                      onClick={() => gitActions.handleHeaderAction(action.action)}
                       disabled={!isReady || (isBusy && action.action !== "log" && action.action !== "diff") || isPRLoading}
                       className={cn(
                         "flex cursor-pointer h-7 w-7 shrink-0 items-center justify-center rounded-md transition-colors disabled:opacity-30 disabled:cursor-not-allowed",
@@ -1254,17 +573,13 @@ export function ChatPanel({
             <div className="flex h-full flex-col items-center justify-center gap-3 text-muted-foreground">
               <Loader2 className="h-8 w-8 animate-spin text-primary" />
               <p className="text-sm">Setting up sandbox...</p>
-              <p className="text-xs text-muted-foreground/60">
-                Cloning repo, installing agent SDK...
-              </p>
+              <p className="text-xs text-muted-foreground/60">Cloning repo, installing agent SDK...</p>
             </div>
           ) : branch.status === "error" && !branch.sandboxId ? (
             <div className="flex h-full flex-col items-center justify-center gap-3 text-muted-foreground">
               <AlertCircle className="h-8 w-8 text-red-400" />
               <p className="text-sm text-red-400">Failed to create sandbox</p>
-              <p className="text-xs text-muted-foreground/60">
-                Check your API keys in Settings and try again
-              </p>
+              <p className="text-xs text-muted-foreground/60">Check your API keys in Settings and try again</p>
             </div>
           ) : messagesLoading ? (
             <div className="flex h-full flex-col items-center justify-center gap-3 text-muted-foreground">
@@ -1277,14 +592,12 @@ export function ChatPanel({
                 <Terminal className="h-5 w-5" />
               </div>
               <p className="text-sm">Start a conversation with Claude Code</p>
-              <p className="text-xs text-muted-foreground/60">
-                The agent has access to Read, Edit, Write, Bash and more
-              </p>
+              <p className="text-xs text-muted-foreground/60">The agent has access to Read, Edit, Write, Bash and more</p>
             </div>
           ) : (
             <div className="flex flex-col gap-5 min-w-0 w-full max-w-full">
               {branch.messages.map((msg) => (
-                <MessageBubble key={msg.id} message={msg} onCommitClick={(hash, msg) => { setCommitDiffHash(hash); setCommitDiffMessage(msg) }} onBranchFromCommit={onBranchFromCommit} />
+                <MessageBubble key={msg.id} message={msg} onCommitClick={(hash, msg) => { gitActions.setCommitDiffHash(hash); gitActions.setCommitDiffMessage(msg) }} onBranchFromCommit={onBranchFromCommit} />
               ))}
               {branch.status === "running" && (
                 <div className="flex items-center gap-2 text-xs text-muted-foreground">
@@ -1351,28 +664,28 @@ export function ChatPanel({
         </div>
       </div>
 
-      {/* Branch picker modal (merge/rebase) */}
-      <Dialog open={!!branchPickerModal} onOpenChange={(open) => !open && setBranchPickerModal(null)}>
+      {/* Branch picker modal */}
+      <Dialog open={!!gitActions.branchPickerModal} onOpenChange={(open) => !open && gitActions.setBranchPickerModal(null)}>
         <DialogContent className="sm:max-w-sm">
           <DialogHeader>
             <DialogTitle className="text-sm">
-              {branchPickerModal?.action === "merge" && `Merge ${branch.name} into...`}
-              {branchPickerModal?.action === "rebase" && `Rebase ${branch.name} onto...`}
+              {gitActions.branchPickerModal?.action === "merge" && `Merge ${branch.name} into...`}
+              {gitActions.branchPickerModal?.action === "rebase" && `Rebase ${branch.name} onto...`}
             </DialogTitle>
           </DialogHeader>
-          {branchesLoading ? (
+          {gitActions.branchesLoading ? (
             <div className="flex items-center justify-center py-4">
               <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
             </div>
-          ) : remoteBranches.length === 0 ? (
+          ) : gitActions.remoteBranches.length === 0 ? (
             <p className="text-sm text-muted-foreground py-2">No other branches found.</p>
           ) : (
-            <Select value={selectedBranch} onValueChange={setSelectedBranch}>
+            <Select value={gitActions.selectedBranch} onValueChange={gitActions.setSelectedBranch}>
               <SelectTrigger className="w-full">
                 <SelectValue placeholder="Select branch" />
               </SelectTrigger>
               <SelectContent>
-                {remoteBranches.map((b) => (
+                {gitActions.remoteBranches.map((b) => (
                   <SelectItem key={b} value={b}>{b}</SelectItem>
                 ))}
               </SelectContent>
@@ -1380,44 +693,42 @@ export function ChatPanel({
           )}
           <DialogFooter>
             <button
-              onClick={() => setBranchPickerModal(null)}
+              onClick={() => gitActions.setBranchPickerModal(null)}
               className="cursor-pointer rounded-md px-3 py-1.5 text-xs text-muted-foreground hover:bg-accent hover:text-foreground"
             >
               Cancel
             </button>
             <button
               onClick={() => {
-                if (branchPickerModal?.action === "merge") handleMerge()
-                if (branchPickerModal?.action === "rebase") handleRebase()
+                if (gitActions.branchPickerModal?.action === "merge") gitActions.handleMerge()
+                if (gitActions.branchPickerModal?.action === "rebase") gitActions.handleRebase()
               }}
-              disabled={!selectedBranch || actionLoading !== null}
+              disabled={!gitActions.selectedBranch || gitActions.actionLoading !== null}
               className="cursor-pointer flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
             >
-              {actionLoading && <Loader2 className="h-3 w-3 animate-spin" />}
-              {branchPickerModal?.action === "merge" ? "Merge" : "Rebase"}
+              {gitActions.actionLoading && <Loader2 className="h-3 w-3 animate-spin" />}
+              {gitActions.branchPickerModal?.action === "merge" ? "Merge" : "Rebase"}
             </button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
       {/* Reset confirmation dialog */}
-      <Dialog open={resetConfirmOpen} onOpenChange={setResetConfirmOpen}>
+      <Dialog open={gitActions.resetConfirmOpen} onOpenChange={gitActions.setResetConfirmOpen}>
         <DialogContent className="sm:max-w-xs">
           <DialogHeader>
             <DialogTitle className="text-sm">Reset to HEAD?</DialogTitle>
           </DialogHeader>
-          <p className="text-xs text-muted-foreground">
-            This will discard all uncommitted changes. This cannot be undone.
-          </p>
+          <p className="text-xs text-muted-foreground">This will discard all uncommitted changes. This cannot be undone.</p>
           <DialogFooter>
             <button
-              onClick={() => setResetConfirmOpen(false)}
+              onClick={() => gitActions.setResetConfirmOpen(false)}
               className="cursor-pointer rounded-md px-3 py-1.5 text-xs text-muted-foreground hover:bg-accent hover:text-foreground"
             >
               Cancel
             </button>
             <button
-              onClick={handleReset}
+              onClick={gitActions.handleReset}
               className="cursor-pointer flex items-center gap-1.5 rounded-md bg-red-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-red-700"
             >
               Reset
@@ -1427,29 +738,29 @@ export function ChatPanel({
       </Dialog>
 
       {/* Tag dialog */}
-      <Dialog open={tagPopoverOpen} onOpenChange={(open) => { setTagPopoverOpen(open); if (!open) setTagNameInput("") }}>
+      <Dialog open={gitActions.tagPopoverOpen} onOpenChange={(open) => { gitActions.setTagPopoverOpen(open); if (!open) gitActions.setTagNameInput("") }}>
         <DialogContent className="sm:max-w-xs">
           <DialogHeader>
             <DialogTitle className="text-sm">Create Tag</DialogTitle>
           </DialogHeader>
           <Input
             placeholder="v1.0.0"
-            value={tagNameInput}
-            onChange={(e) => setTagNameInput(e.target.value)}
-            onKeyDown={(e) => { if (e.key === "Enter") handleTag() }}
+            value={gitActions.tagNameInput}
+            onChange={(e) => gitActions.setTagNameInput(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Enter") gitActions.handleTag() }}
             className="h-8 text-xs font-mono"
             autoFocus
           />
           <DialogFooter>
             <button
-              onClick={() => { setTagPopoverOpen(false); setTagNameInput("") }}
+              onClick={() => { gitActions.setTagPopoverOpen(false); gitActions.setTagNameInput("") }}
               className="cursor-pointer rounded-md px-3 py-1.5 text-xs text-muted-foreground hover:bg-accent hover:text-foreground"
             >
               Cancel
             </button>
             <button
-              onClick={handleTag}
-              disabled={!tagNameInput.trim()}
+              onClick={gitActions.handleTag}
+              disabled={!gitActions.tagNameInput.trim()}
               className="cursor-pointer flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
             >
               Create
@@ -1459,7 +770,7 @@ export function ChatPanel({
       </Dialog>
 
       {/* Rsync command modal */}
-      <Dialog open={rsyncModalOpen} onOpenChange={(open) => { setRsyncModalOpen(open); if (!open) setRsyncCopied(false) }}>
+      <Dialog open={gitActions.rsyncModalOpen} onOpenChange={(open) => { gitActions.setRsyncModalOpen(open); if (!open) gitActions.setRsyncCopied(false) }}>
         <DialogContent className="sm:max-w-lg overflow-hidden">
           <DialogHeader>
             <DialogTitle className="text-sm">Sync to local</DialogTitle>
@@ -1468,16 +779,16 @@ export function ChatPanel({
             Run this in your terminal to continuously sync the sandbox to a local folder. It respects <code className="rounded bg-muted px-1 py-0.5">.gitignore</code> files and re-syncs every 2 seconds. Press <code className="rounded bg-muted px-1 py-0.5">Ctrl+C</code> to stop.
           </p>
           <div className="relative">
-            <pre className="rounded-md bg-muted p-3 pr-9 text-xs font-mono whitespace-pre-wrap break-all">{rsyncCommand}</pre>
+            <pre className="rounded-md bg-muted p-3 pr-9 text-xs font-mono whitespace-pre-wrap break-all">{gitActions.rsyncCommand}</pre>
             <button
               onClick={async () => {
-                await navigator.clipboard.writeText(rsyncCommand)
-                setRsyncCopied(true)
-                setTimeout(() => setRsyncCopied(false), 2000)
+                await navigator.clipboard.writeText(gitActions.rsyncCommand)
+                gitActions.setRsyncCopied(true)
+                setTimeout(() => gitActions.setRsyncCopied(false), 2000)
               }}
               className="absolute top-2 right-2 cursor-pointer rounded-md p-1 text-muted-foreground hover:bg-accent hover:text-foreground"
             >
-              {rsyncCopied ? <Check className="h-3.5 w-3.5 text-green-400" /> : <Copy className="h-3.5 w-3.5" />}
+              {gitActions.rsyncCopied ? <Check className="h-3.5 w-3.5 text-green-400" /> : <Copy className="h-3.5 w-3.5" />}
             </button>
           </div>
         </DialogContent>
@@ -1486,8 +797,8 @@ export function ChatPanel({
       {/* Diff modal — branch comparison */}
       {branch.sandboxId && (
         <DiffModal
-          open={diffModalOpen}
-          onClose={() => setDiffModalOpen(false)}
+          open={gitActions.diffModalOpen}
+          onClose={() => gitActions.setDiffModalOpen(false)}
           repoOwner={repoOwner}
           repoName={repoName}
           branchName={branch.name}
@@ -1498,14 +809,14 @@ export function ChatPanel({
       {/* Diff modal — single commit */}
       {branch.sandboxId && (
         <DiffModal
-          open={!!commitDiffHash}
-          onClose={() => { setCommitDiffHash(null); setCommitDiffMessage(null) }}
+          open={!!gitActions.commitDiffHash}
+          onClose={() => { gitActions.setCommitDiffHash(null); gitActions.setCommitDiffMessage(null) }}
           repoOwner={repoOwner}
           repoName={repoName}
           branchName={branch.name}
           baseBranch={branch.baseBranch}
-          commitHash={commitDiffHash}
-          commitMessage={commitDiffMessage}
+          commitHash={gitActions.commitDiffHash}
+          commitMessage={gitActions.commitDiffMessage}
         />
       )}
     </TooltipProvider>
