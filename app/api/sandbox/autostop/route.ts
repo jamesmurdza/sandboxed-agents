@@ -22,10 +22,12 @@ export async function POST(req: Request) {
     return Response.json({ error: "Server configuration error: Daytona API key not set" }, { status: 500 })
   }
 
-  // Get all user's sandboxes
+  // Get user's sandboxes (limit to prevent OOM with many sandboxes)
   const sandboxes = await prisma.sandbox.findMany({
     where: { userId: session.user.id },
     select: { sandboxId: true },
+    take: 100,
+    orderBy: { lastActiveAt: "desc" },
   })
 
   if (sandboxes.length === 0) {
