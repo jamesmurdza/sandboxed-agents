@@ -1,7 +1,8 @@
-import { useCallback, useRef } from "react"
+import { useCallback } from "react"
 import type { Branch, Message } from "@/lib/types"
 import type { TransformedRepo } from "@/lib/db-types"
 import { BRANCH_STATUS } from "@/lib/constants"
+import type { AgentProvider } from "@/lib/agent-providers"
 
 interface UseBranchOperationsOptions {
   repos: TransformedRepo[]
@@ -58,7 +59,7 @@ export function useBranchOperations({
     // Only update in database if branch exists there (not during creation)
     // When id is provided, we're transitioning from client-side to server-side ID
     const shouldPersist = !isBeingCreated || updates.id
-    if (shouldPersist && (updates.status || updates.prUrl || updates.name || updates.draftPrompt !== undefined)) {
+    if (shouldPersist && (updates.status || updates.prUrl || updates.name || updates.draftPrompt !== undefined || updates.agent || updates.model)) {
       fetch("/api/branches", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
@@ -66,6 +67,62 @@ export function useBranchOperations({
       }).catch(() => {})
     }
   }, [activeRepo, setRepos, activeBranchIdRef, setActiveBranchId])
+
+  // Change agent for a branch (clears messages and session)
+  const handleAgentChange = useCallback(async (branchId: string, agent: AgentProvider) => {
+    if (!activeRepo) return
+
+    // Update local state - clear messages
+    setRepos((prev) =>
+      prev.map((r) => {
+        if (r.id !== activeRepo.id) return r
+        return {
+          ...r,
+          branches: r.branches.map((b) => {
+            if (b.id !== branchId) return b
+            return { ...b, agent, model: undefined, sessionId: undefined, messages: [] }
+          }),
+        }
+      })
+    )
+
+    // Persist to database with clearMessages flag
+    try {
+      await fetch("/api/branches", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ branchId, agent, clearMessages: true }),
+      })
+    } catch (error) {
+      console.error("Error changing agent:", error)
+    }
+  }, [activeRepo, setRepos])
+
+  // Change model for a branch (no message clearing needed)
+  const handleModelChange = useCallback((branchId: string, model: string) => {
+    if (!activeRepo) return
+
+    // Update local state
+    setRepos((prev) =>
+      prev.map((r) => {
+        if (r.id !== activeRepo.id) return r
+        return {
+          ...r,
+          branches: r.branches.map((b) => {
+            if (b.id !== branchId) return b
+            return { ...b, model }
+          }),
+        }
+      })
+    )
+
+    // Persist to database
+    fetch("/api/branches", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ branchId, model }),
+    }).catch(() => {})
+  }, [activeRepo, setRepos])
 
   // Save draft prompt for a specific branch
   const handleSaveDraftForBranch = useCallback((branchId: string, draftPrompt: string) => {
@@ -207,6 +264,8 @@ export function useBranchOperations({
 
   return {
     handleUpdateBranch,
+    handleAgentChange,
+    handleModelChange,
     handleSaveDraftForBranch,
     handleAddMessage,
     handleUpdateMessage,

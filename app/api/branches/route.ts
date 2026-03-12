@@ -95,7 +95,7 @@ export async function PATCH(req: Request) {
   const { userId } = authResult
 
   const body = await req.json()
-  const { branchId, status, prUrl, name, draftPrompt } = body
+  const { branchId, status, prUrl, name, draftPrompt, agent, model, clearMessages } = body
 
   if (!branchId) {
     return badRequest("Missing branch ID")
@@ -107,6 +107,23 @@ export async function PATCH(req: Request) {
     return notFound("Branch not found")
   }
 
+  // If agent is changing and clearMessages is true, delete all messages first
+  if (clearMessages) {
+    await prisma.message.deleteMany({
+      where: { branchId },
+    })
+    // Also clear session ID since we're starting fresh
+    const sandbox = await prisma.sandbox.findUnique({
+      where: { branchId },
+    })
+    if (sandbox) {
+      await prisma.sandbox.update({
+        where: { id: sandbox.id },
+        data: { sessionId: null },
+      })
+    }
+  }
+
   const updatedBranch = await prisma.branch.update({
     where: { id: branchId },
     data: {
@@ -114,6 +131,8 @@ export async function PATCH(req: Request) {
       ...(prUrl !== undefined && { prUrl }),
       ...(name && { name }),
       ...(draftPrompt !== undefined && { draftPrompt }),
+      ...(agent && { agent }),
+      ...(model !== undefined && { model }),
     },
     include: {
       sandbox: true,

@@ -1,6 +1,7 @@
 import { type BranchStatus, type AnthropicAuthType as ConstantsAnthropicAuthType } from "./constants"
+import { type AgentProvider } from "./agent-providers"
 
-export type Agent = "claude-code"
+export type Agent = "claude-code" | AgentProvider
 
 export interface ToolCall {
   id: string
@@ -37,6 +38,7 @@ export interface Branch {
   id: string
   name: string
   agent?: Agent
+  model?: string  // Model selection for the agent (e.g., "sonnet", "gpt-4o")
   messages: Message[]
   status: BranchStatus
   lastActivity?: string
@@ -68,11 +70,15 @@ export interface Settings {
   anthropicApiKey: string
   anthropicAuthType: AnthropicAuthType
   anthropicAuthToken: string
+  openaiApiKey: string  // For Codex and OpenCode agents
   daytonaApiKey: string
 }
 
-export const agentLabels: Record<Agent, string> = {
+export const agentLabels: Record<string, string> = {
   "claude-code": "Claude Code",
+  "claude": "Claude",
+  "codex": "Codex",
+  "opencode": "OpenCode",
 }
 
 export const defaultSettings: Settings = {
@@ -80,5 +86,6 @@ export const defaultSettings: Settings = {
   anthropicApiKey: "",
   anthropicAuthType: "api-key",
   anthropicAuthToken: "",
+  openaiApiKey: "",
   daytonaApiKey: "",
 }

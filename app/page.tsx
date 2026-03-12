@@ -78,6 +78,8 @@ export default function Home() {
   // Branch operations
   const {
     handleUpdateBranch,
+    handleAgentChange,
+    handleModelChange,
     handleSaveDraftForBranch,
     handleAddMessage,
     handleUpdateMessage,
@@ -289,6 +291,9 @@ export default function Home() {
                   onForceSave={() => {}}
                   onCommitsDetected={() => setGitHistoryRefreshTrigger((n) => n + 1)}
                   onBranchFromCommit={(hash) => setPendingStartCommit(hash)}
+                  onAgentChange={(agent) => handleAgentChange(activeBranch.id, agent)}
+                  onModelChange={(model) => handleModelChange(activeBranch.id, model)}
+                  credentials={credentials || undefined}
                   messagesLoading={messagesLoading}
                   isMobile={true}
                 />
@@ -320,6 +325,9 @@ export default function Home() {
               onForceSave={() => {}}
               onCommitsDetected={() => setGitHistoryRefreshTrigger((n) => n + 1)}
               onBranchFromCommit={(hash) => setPendingStartCommit(hash)}
+              onAgentChange={(agent) => handleAgentChange(activeBranch.id, agent)}
+              onModelChange={(model) => handleModelChange(activeBranch.id, model)}
+              credentials={credentials || undefined}
               messagesLoading={messagesLoading}
             />
           ) : (

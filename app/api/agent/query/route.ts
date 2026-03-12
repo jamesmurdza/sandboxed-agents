@@ -1,5 +1,5 @@
+import { Daytona } from "@daytonaio/sdk"
 import { prisma } from "@/lib/prisma"
-import { ensureSandboxReady } from "@/lib/sandbox-resume"
 import {
   requireAuth,
   isAuthError,
@@ -11,6 +11,13 @@ import {
   notFound,
   resetSandboxStatus,
 } from "@/lib/api-helpers"
+import {
+  createAgentSession,
+  formatEventForSSE,
+  createOutputAccumulator,
+  accumulateEvent,
+} from "@/lib/agent-session"
+import { type AgentProvider } from "@/lib/agent-providers"
 
 export const maxDuration = 300 // 5 minute timeout for agent queries
 
@@ -20,7 +27,7 @@ export async function POST(req: Request) {
   if (isAuthError(auth)) return auth
 
   const body = await req.json()
-  const { sandboxId, contextId, prompt, previewUrlPattern, repoName, messageId } = body
+  const { sandboxId, prompt, previewUrlPattern, repoName, messageId } = body
 
   if (!sandboxId || !prompt) {
     return badRequest("Missing required fields")
@@ -36,10 +43,12 @@ export async function POST(req: Request) {
   const daytonaApiKey = getDaytonaApiKey()
   if (isDaytonaKeyError(daytonaApiKey)) return daytonaApiKey
 
-  // Decrypt user's Anthropic credentials
-  const { anthropicApiKey, anthropicAuthToken, anthropicAuthType } = decryptUserCredentials(
-    sandboxRecord.user.credentials
-  )
+  // Decrypt user's credentials
+  const credentials = decryptUserCredentials(sandboxRecord.user.credentials)
+
+  // Get agent and model from branch
+  const agent = (sandboxRecord.branch?.agent || "claude") as AgentProvider
+  const model = sandboxRecord.branch?.model || undefined
 
   // Determine repo name from database or request
   const actualRepoName = repoName || sandboxRecord.branch?.repo?.name || "repo"
@@ -50,9 +59,8 @@ export async function POST(req: Request) {
   const sandboxDbId = sandboxRecord.id
   const branchDbId = sandboxRecord.branch?.id
 
-  // Accumulate output so we can save it to DB even if client disconnects
-  let accumulatedContent = ""
-  let accumulatedToolCalls: { tool: string; summary: string }[] = []
+  // Accumulate output for database persistence
+  const output = createOutputAccumulator()
   let streamCancelled = false
   let hasSavedToDb = false
 
@@ -60,17 +68,25 @@ export async function POST(req: Request) {
   async function saveAccumulatedContent() {
     if (hasSavedToDb) return
     if (!messageId) return
-    if (!accumulatedContent && accumulatedToolCalls.length === 0) return
+    if (!output.content && output.toolCalls.length === 0) return
 
     hasSavedToDb = true
     try {
       await prisma.message.update({
         where: { id: messageId },
         data: {
-          content: accumulatedContent,
-          toolCalls: accumulatedToolCalls.length > 0 ? accumulatedToolCalls : undefined,
+          content: output.content,
+          toolCalls: output.toolCalls.length > 0 ? output.toolCalls : undefined,
         },
       })
+
+      // Save session ID if we got one
+      if (output.sessionId) {
+        await prisma.sandbox.update({
+          where: { id: sandboxDbId },
+          data: { sessionId: output.sessionId },
+        })
+      }
     } catch {
       // Message may not exist if client disconnected before it was saved
     }
@@ -91,9 +107,7 @@ export async function POST(req: Request) {
       function send(data: Record<string, unknown>) {
         if (streamCancelled) return
         try {
-          controller.enqueue(
-            encoder.encode(`data: ${JSON.stringify(data)}\n\n`)
-          )
+          controller.enqueue(encoder.encode(`data: ${JSON.stringify(data)}\n\n`))
         } catch {
           // Controller is closed/cancelled, ignore the error
           streamCancelled = true
@@ -101,24 +115,14 @@ export async function POST(req: Request) {
       }
 
       try {
-        // Use resume helper to ensure sandbox + agent are ready
-        const { sandbox, contextId: activeContextId, wasResumed, resumeSessionId } = await ensureSandboxReady(
-          daytonaApiKey,
-          sandboxId,
-          actualRepoName,
-          previewUrlPattern || sandboxRecord.previewUrlPattern || undefined,
-          anthropicApiKey,
-          anthropicAuthType,
-          anthropicAuthToken,
-        )
+        // Initialize Daytona client
+        const daytona = new Daytona({ apiKey: daytonaApiKey })
+        const sandbox = await daytona.get(sandboxId)
 
-        // If context was re-created after resume, notify frontend and update DB
-        if (wasResumed) {
-          send({ type: "context-updated", contextId: activeContextId })
-          await prisma.sandbox.update({
-            where: { id: sandboxRecord.id },
-            data: { contextId: activeContextId },
-          })
+        // Ensure sandbox is started
+        if (sandbox.state !== "started") {
+          send({ type: "status", message: "Starting sandbox..." })
+          await sandbox.start(120) // 120-second startup timeout
         }
 
         // Update last activity
@@ -134,67 +138,37 @@ export async function POST(req: Request) {
           // Non-critical
         }
 
-        // Find the context to use
-        const contexts = await sandbox.codeInterpreter.listContexts()
-        const ctx = contexts.find((c) => c.id === activeContextId)
-        if (!ctx) {
-          throw new Error(
-            "Agent context not found. The sandbox may have been reset. Please create a new branch."
-          )
-        }
+        // Get session ID for resumption (if any)
+        const sessionId = sandboxRecord.sessionId || undefined
 
-        // Run the query with streaming output
-        const result = await sandbox.codeInterpreter.runCode(
-          `coding_agent.run_query_sync(os.environ.get('PROMPT', ''))`,
-          {
-            context: ctx,
-            envs: {
-              PROMPT: prompt,
-              ...(previewUrlPattern || sandboxRecord.previewUrlPattern
-                ? { PREVIEW_URL_PATTERN: previewUrlPattern || sandboxRecord.previewUrlPattern }
-                : {}),
-              ...(resumeSessionId ? { RESUME_SESSION_ID: resumeSessionId } : {}),
-            },
-            onStdout: (msg) => {
-              const text = msg.output
-              // Parse SESSION_ID: prefix from agent stdout
-              if (text.startsWith("SESSION_ID:")) {
-                const sessionId = text.replace("SESSION_ID:", "").trim()
-                if (sessionId) {
-                  send({ type: "session-id", sessionId })
-                  // Update session ID in database
-                  prisma.sandbox.update({
-                    where: { id: sandboxRecord.id },
-                    data: { sessionId },
-                  }).catch(() => {})
-                }
-                return
-              }
-              // Accumulate output for server-side persistence
-              if (text.startsWith("TOOL_USE:")) {
-                const toolSummary = text.replace("TOOL_USE:", "").trim()
-                const toolName = toolSummary.split(":")[0].trim()
-                accumulatedToolCalls.push({ tool: toolName, summary: toolSummary })
-              } else {
-                accumulatedContent += text
-              }
-              send({ type: "stdout", content: text })
-            },
-            onStderr: (msg) => {
-              send({ type: "stderr", content: msg.output })
-            },
+        // Create agent session using the SDK
+        const session = await createAgentSession(agent, {
+          sandbox,
+          credentials: {
+            anthropicApiKey: credentials.anthropicApiKey,
+            openaiApiKey: credentials.openaiApiKey,
+          },
+          model,
+          sessionId,
+          timeout: 300,
+        })
+
+        // Run the query and stream events
+        for await (const event of session.run(prompt)) {
+          // Accumulate for database persistence
+          accumulateEvent(output, event)
+
+          // Format and send to frontend
+          const sseData = formatEventForSSE(event)
+          send(sseData)
+
+          // Break on end event
+          if (event.type === "end") {
+            break
           }
-        )
-
-        if (result.error) {
-          const errorMsg = `Error: ${result.error.value}`
-          accumulatedContent = accumulatedContent
-            ? `${accumulatedContent}\n\n${errorMsg}`
-            : errorMsg
-          send({ type: "error", message: result.error.value })
         }
 
-        // Save accumulated output to database - ensures message is persisted even if client disconnects
+        // Save accumulated output to database
         await saveAccumulatedContent()
 
         // Update sandbox and branch status back to idle
@@ -214,11 +188,10 @@ export async function POST(req: Request) {
         const message = error instanceof Error ? error.message : "Unknown error"
 
         // Save error message to database if we have a messageId
-        // Only add error to content if it's not a stream cancellation
         if (!streamCancelled) {
           const errorMsg = `Error: ${message}`
-          accumulatedContent = accumulatedContent
-            ? `${accumulatedContent}\n\n${errorMsg}`
+          output.content = output.content
+            ? `${output.content}\n\n${errorMsg}`
             : errorMsg
         }
         await saveAccumulatedContent()
@@ -232,7 +205,6 @@ export async function POST(req: Request) {
       // Called when the client disconnects (e.g., page refresh)
       streamCancelled = true
       // Save whatever we have accumulated so far
-      // This runs async but we don't need to wait for it
       saveAccumulatedContent()
     },
   })

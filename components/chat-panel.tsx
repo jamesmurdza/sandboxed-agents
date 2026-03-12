@@ -4,6 +4,7 @@ import { cn } from "@/lib/utils"
 import type { Branch, Message } from "@/lib/types"
 import { generateId } from "@/lib/store"
 import { BRANCH_STATUS } from "@/lib/constants"
+import { type AgentProvider } from "@/lib/agent-providers"
 import { Terminal } from "lucide-react"
 import { useRef, useEffect, useCallback } from "react"
 import { TooltipProvider } from "@/components/ui/tooltip"
@@ -40,6 +41,9 @@ interface ChatPanelProps {
   onForceSave: () => void
   onCommitsDetected?: () => void
   onBranchFromCommit?: (commitHash: string) => void
+  onAgentChange?: (agent: AgentProvider) => void
+  onModelChange?: (model: string) => void
+  credentials?: { hasAnthropicApiKey?: boolean; hasOpenaiApiKey?: boolean }
   messagesLoading?: boolean
   isMobile?: boolean
 }
@@ -58,6 +62,9 @@ export function ChatPanel({
   onForceSave,
   onCommitsDetected,
   onBranchFromCommit,
+  onAgentChange,
+  onModelChange,
+  credentials,
   messagesLoading = false,
   isMobile = false,
 }: ChatPanelProps) {
@@ -225,6 +232,9 @@ export function ChatPanel({
           onInputChange={setInput}
           onSend={handleSend}
           onStop={handleStop}
+          onAgentChange={onAgentChange}
+          onModelChange={onModelChange}
+          credentials={credentials}
           isMobile={isMobile}
         />
       </div>
