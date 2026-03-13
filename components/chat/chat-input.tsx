@@ -4,7 +4,7 @@ import { cn } from "@/lib/utils"
 import type { Agent, Branch } from "@/lib/types"
 import { agentLabels, agentModels, getModelLabel, defaultAgentModel } from "@/lib/types"
 import { BRANCH_STATUS } from "@/lib/constants"
-import { Send, Terminal, ChevronDown, Sparkles } from "lucide-react"
+import { Send, Terminal, ChevronDown, Sparkles, Check } from "lucide-react"
 import { forwardRef, useEffect, useCallback } from "react"
 import {
   DropdownMenu,
@@ -109,50 +109,44 @@ export const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>(
             )}
           </button>
         </div>
-        <div className="mt-2 flex items-center">
+        <div className="mt-2 flex items-center justify-between">
           {/* Agent Dropdown */}
           <DropdownMenu>
-            <DropdownMenuTrigger className="group flex items-center gap-1.5 px-2 py-1 text-xs text-muted-foreground hover:text-foreground transition-colors cursor-pointer">
-              <Terminal className="h-3 w-3" />
+            <DropdownMenuTrigger className="group flex items-center gap-1 px-1.5 py-0.5 text-[11px] text-muted-foreground transition-colors hover:text-foreground data-[state=open]:text-foreground cursor-pointer">
+              <Terminal className="h-2.5 w-2.5 shrink-0" />
               <span>{agentLabels[currentAgent]}</span>
-              <ChevronDown className="h-3 w-3 opacity-40 group-hover:opacity-70 transition-opacity" />
+              <ChevronDown className="h-2.5 w-2.5 shrink-0 opacity-50 transition-transform duration-200 group-data-[state=open]:rotate-180" />
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="start" sideOffset={2} className="min-w-[120px] border-t-0 rounded-t-none -mt-px">
+            <DropdownMenuContent align="start" sideOffset={4} className="min-w-[140px] rounded-lg border border-border/60 py-0.5 shadow-md">
               {(Object.keys(agentLabels) as Agent[]).map((agent) => (
                 <DropdownMenuItem
                   key={agent}
                   onClick={() => handleAgentChange(agent)}
-                  className={cn(
-                    "text-xs",
-                    agent === currentAgent && "font-medium text-foreground"
-                  )}
+                  className="flex items-center justify-between py-1.5 text-[11px] cursor-pointer"
                 >
                   {agentLabels[agent]}
+                  {agent === currentAgent && <Check className="h-3.5 w-3.5 shrink-0 text-primary" />}
                 </DropdownMenuItem>
               ))}
             </DropdownMenuContent>
           </DropdownMenu>
 
-          <span className="text-border mx-1">·</span>
-
           {/* Model Dropdown */}
           <DropdownMenu>
-            <DropdownMenuTrigger className="group flex items-center gap-1.5 px-2 py-1 text-xs text-muted-foreground hover:text-foreground transition-colors cursor-pointer">
-              <Sparkles className="h-3 w-3" />
+            <DropdownMenuTrigger className="group flex items-center gap-1 px-1.5 py-0.5 text-[11px] text-muted-foreground transition-colors hover:text-foreground data-[state=open]:text-foreground cursor-pointer">
+              <Sparkles className="h-2.5 w-2.5 shrink-0" />
               <span>{getModelLabel(currentAgent, currentModel)}</span>
-              <ChevronDown className="h-3 w-3 opacity-40 group-hover:opacity-70 transition-opacity" />
+              <ChevronDown className="h-2.5 w-2.5 shrink-0 opacity-50 transition-transform duration-200 group-data-[state=open]:rotate-180" />
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="start" sideOffset={2} className="min-w-[140px] border-t-0 rounded-t-none -mt-px">
+            <DropdownMenuContent align="end" sideOffset={4} className="min-w-[160px] rounded-lg border border-border/60 py-0.5 shadow-md">
               {modelOptions.map((model) => (
                 <DropdownMenuItem
                   key={model.value}
                   onClick={() => onModelChange?.(model.value)}
-                  className={cn(
-                    "text-xs",
-                    model.value === currentModel && "font-medium text-foreground"
-                  )}
+                  className="flex items-center justify-between py-1.5 text-[11px] cursor-pointer"
                 >
                   {model.label}
+                  {model.value === currentModel && <Check className="h-3.5 w-3.5 shrink-0 text-primary" />}
                 </DropdownMenuItem>
               ))}
             </DropdownMenuContent>
