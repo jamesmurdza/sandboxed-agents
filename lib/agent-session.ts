@@ -392,10 +392,6 @@ export async function startBackgroundAgent(
   }
 }
 
-// In-memory cache for accumulated events per background session
-// This is needed because SDK's getEvents() returns only NEW events since last poll
-const backgroundSessionEvents = new Map<string, Event[]>()
-
 export interface PollBackgroundOptions {
   repoPath: string
   previewUrlPattern?: string
@@ -436,15 +432,10 @@ export async function pollBackgroundAgent(
     })
 
     const isRunning = await bgSession.isRunning()
-    const { events: newEvents, sessionId } = await bgSession.getEvents()
+    const { events, sessionId } = await bgSession.getEvents()
 
-    // Accumulate events - SDK returns only new events since last poll
-    const cachedEvents = backgroundSessionEvents.get(backgroundSessionId) || []
-    const allEvents = [...cachedEvents, ...newEvents]
-    backgroundSessionEvents.set(backgroundSessionId, allEvents)
-
-    // Build content, tool calls, and content blocks from ALL accumulated events
-    const { content, toolCalls, contentBlocks } = buildContentBlocks(allEvents)
+    // Build content, tool calls, and content blocks from just this batch of events.
+    const { content, toolCalls, contentBlocks } = buildContentBlocks(events)
 
     // Persist snapshot to AgentEvent for SSE streaming if execution id provided.
     // We store the full snapshot so SSE consumers can simply take the latest
@@ -472,13 +463,8 @@ export async function pollBackgroundAgent(
 
     // Check if we've received an 'end' event - this is more reliable than isRunning
     // since isRunning checks process state which may have a slight delay
-    const hasEndEvent = allEvents.some(e => e.type === "end")
+    const hasEndEvent = events.some(e => e.type === "end")
     const isCompleted = !isRunning || hasEndEvent
-
-    // Clean up cache when completed
-    if (isCompleted) {
-      backgroundSessionEvents.delete(backgroundSessionId)
-    }
 
     return {
       status: isCompleted ? "completed" : "running",
@@ -489,29 +475,15 @@ export async function pollBackgroundAgent(
       sessionId: sessionId || undefined,
     }
   } catch (err) {
-    // DON'T clear cache on transient errors - preserve accumulated content
-    // This prevents losing streaming progress due to temporary network issues
-    // The cache will be cleared on the next successful poll or when completed
-    const cachedEvents = backgroundSessionEvents.get(backgroundSessionId) || []
-    const { content, toolCalls, contentBlocks } = buildContentBlocks(cachedEvents)
-
     return {
       status: "error",
-      // Return accumulated content so far, don't lose progress
-      content,
-      toolCalls,
-      contentBlocks,
+      // For transient errors we don't attempt to reconstruct accumulated content here;
+      // callers can decide how to surface the error alongside any existing UI state.
+      content: "",
+      toolCalls: [],
+      contentBlocks: [],
       error: err instanceof Error ? err.message : "Unknown error polling background session",
     }
-  }
-}
-
-// Export for testing/cleanup purposes
-export function clearBackgroundSessionCache(backgroundSessionId?: string) {
-  if (backgroundSessionId) {
-    backgroundSessionEvents.delete(backgroundSessionId)
-  } else {
-    backgroundSessionEvents.clear()
   }
 }
 
