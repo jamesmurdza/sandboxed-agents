@@ -419,7 +419,7 @@ export function BranchList({
             )}
             <button
               onClick={handleCreateBranch}
-              disabled={creating}
+              disabled={creating || githubBranchesLoading}
               className="flex cursor-pointer items-center justify-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-50"
             >
               {creating && <Loader2 className="h-3 w-3 animate-spin" />}
