@@ -1,7 +1,7 @@
 import { useRef, useCallback, useEffect } from "react"
 import type { Branch, Message } from "@/lib/types"
 import { generateId } from "@/lib/store"
-import { BRANCH_STATUS, EXECUTION_STATUS } from "@/lib/constants"
+import { BRANCH_STATUS, EXECUTION_STATUS, PATHS } from "@/lib/constants"
 
 interface UseExecutionPollingOptions {
   branch: Branch
@@ -183,7 +183,7 @@ export function useExecutionPolling({
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({
                   sandboxId: currentSandboxId,
-                  repoPath: `/home/daytona/${repoName}`,
+                  repoPath: `${PATHS.SANDBOX_HOME}/${repoName}`,
                   action: "auto-commit-push",
                   branchName: currentBranchName,
                 }),
@@ -195,7 +195,7 @@ export function useExecutionPolling({
                   headers: { "Content-Type": "application/json" },
                   body: JSON.stringify({
                     sandboxId: currentSandboxId,
-                    repoPath: `/home/daytona/${repoName}`,
+                    repoPath: `${PATHS.SANDBOX_HOME}/${repoName}`,
                     action: "log",
                     sinceCommit: startingCommitRef.current,
                   }),

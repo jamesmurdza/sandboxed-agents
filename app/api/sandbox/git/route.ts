@@ -10,8 +10,9 @@ import {
   isDaytonaKeyError,
   internalError,
 } from "@/lib/api-helpers"
+import { TIMEOUTS } from "@/lib/constants"
 
-export const maxDuration = 60
+export const maxDuration = TIMEOUTS.GIT_OPERATION / 1000 // Convert ms to seconds
 
 /**
  * Verifies we're on the correct branch (no checkout).

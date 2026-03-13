@@ -193,6 +193,8 @@ export const PATHS = {
   CLAUDE_CREDENTIALS_DIR: "/home/daytona/.claude",
   /** Claude credentials file */
   CLAUDE_CREDENTIALS_FILE: "/home/daytona/.claude/.credentials.json",
+  /** Agent session ID persistence file */
+  AGENT_SESSION_FILE: "/home/daytona/.agent_session_id",
 } as const
 
 // =============================================================================
@@ -206,6 +208,8 @@ export const SANDBOX_CONFIG = {
   LABEL_KEY: "sandboxed-agents",
   /** Default preview port */
   DEFAULT_PREVIEW_PORT: 3000,
+  /** Timeout in seconds for starting sandbox */
+  START_TIMEOUT_SECONDS: 120,
 } as const
 
 // =============================================================================

@@ -9,6 +9,7 @@ import {
   getDaytonaApiKey,
   isDaytonaKeyError,
 } from "@/lib/api-helpers"
+import { PATHS } from "@/lib/constants"
 import { Daytona } from "@daytonaio/sdk"
 
 export async function POST(req: Request) {
@@ -132,7 +133,7 @@ export async function PATCH(req: Request) {
       try {
         const daytona = new Daytona({ apiKey: daytonaApiKey })
         const sandbox = await daytona.get(branchWithSandbox.sandbox.sandboxId)
-        await sandbox.process.executeCommand("rm -f /home/daytona/.agent_session_id")
+        await sandbox.process.executeCommand(`rm -f ${PATHS.AGENT_SESSION_FILE}`)
       } catch (err) {
         console.error("Failed to clear session file:", err)
         // Non-critical, continue

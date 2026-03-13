@@ -1,5 +1,6 @@
 import { Daytona } from "@daytonaio/sdk"
 import { readPersistedSessionId } from "@/lib/agent-session"
+import { PATHS, SANDBOX_CONFIG } from "@/lib/constants"
 import type { Agent } from "@/lib/types"
 
 /**
@@ -32,7 +33,7 @@ export async function ensureSandboxReady(
 
   // Start sandbox if not running
   if (sandbox.state !== "started") {
-    await sandbox.start(120)
+    await sandbox.start(SANDBOX_CONFIG.START_TIMEOUT_SECONDS)
   }
 
   // Read stored session ID for agent resumption
@@ -52,7 +53,7 @@ export async function ensureSandboxReady(
   if (anthropicAuthType === "claude-max" && anthropicAuthToken) {
     const credentialsB64 = Buffer.from(anthropicAuthToken).toString("base64")
     await sandbox.process.executeCommand(
-      `mkdir -p /home/daytona/.claude && echo '${credentialsB64}' | base64 -d > /home/daytona/.claude/.credentials.json && chmod 600 /home/daytona/.claude/.credentials.json`
+      `mkdir -p ${PATHS.CLAUDE_CREDENTIALS_DIR} && echo '${credentialsB64}' | base64 -d > ${PATHS.CLAUDE_CREDENTIALS_FILE} && chmod 600 ${PATHS.CLAUDE_CREDENTIALS_FILE}`
     )
   }
 
@@ -91,7 +92,7 @@ export async function ensureSandboxStarted(
   const sandbox = await daytona.get(sandboxId)
 
   if (sandbox.state !== "started") {
-    await sandbox.start(120)
+    await sandbox.start(SANDBOX_CONFIG.START_TIMEOUT_SECONDS)
   }
 
   return sandbox

@@ -7,6 +7,7 @@ import {
   addBranchToRepo,
   removeBranchFromRepo,
 } from "@/lib/state-utils"
+import { PATHS } from "@/lib/constants"
 
 interface UseRepoOperationsOptions {
   repos: TransformedRepo[]
@@ -94,7 +95,7 @@ export function useRepoOperations({
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             sandboxId: branch.sandboxId,
-            repoPath: `/home/daytona/${activeRepo.name}`,
+            repoPath: `${PATHS.SANDBOX_HOME}/${activeRepo.name}`,
             action: "delete-remote-branch",
             currentBranch: branch.name,
             repoOwner: activeRepo.owner,

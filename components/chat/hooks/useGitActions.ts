@@ -1,7 +1,7 @@
 import { useState, useCallback } from "react"
 import type { Branch, Message } from "@/lib/types"
 import { generateId } from "@/lib/store"
-import { BRANCH_STATUS } from "@/lib/constants"
+import { BRANCH_STATUS, PATHS } from "@/lib/constants"
 
 // Export the return type for use in sub-components
 export type UseGitActionsReturn = ReturnType<typeof useGitActions>
@@ -138,7 +138,7 @@ export function useGitActions({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           sandboxId: branch.sandboxId,
-          repoPath: `/home/daytona/${repoName}`,
+          repoPath: `${PATHS.SANDBOX_HOME}/${repoName}`,
           action: "merge",
           targetBranch: selectedBranch,
           currentBranch: branch.name,
@@ -165,7 +165,7 @@ export function useGitActions({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           sandboxId: branch.sandboxId,
-          repoPath: `/home/daytona/${repoName}`,
+          repoPath: `${PATHS.SANDBOX_HOME}/${repoName}`,
           action: "rebase",
           targetBranch: selectedBranch,
           currentBranch: branch.name,
@@ -192,7 +192,7 @@ export function useGitActions({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           sandboxId: branch.sandboxId,
-          repoPath: `/home/daytona/${repoName}`,
+          repoPath: `${PATHS.SANDBOX_HOME}/${repoName}`,
           action: "reset",
         }),
       })
@@ -219,7 +219,7 @@ export function useGitActions({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           sandboxId: branch.sandboxId,
-          repoPath: `/home/daytona/${repoName}`,
+          repoPath: `${PATHS.SANDBOX_HOME}/${repoName}`,
           action: "tag",
           tagName: name,
           repoOwner: owner,
@@ -283,7 +283,7 @@ export function useGitActions({
         const userHost = userHostMatch[1]
         const port = portMatch ? portMatch[1] : "22"
         const host = port !== "22" ? `${userHost}:${port}` : userHost
-        const remotePath = `/home/daytona/${repoName}`
+        const remotePath = `${PATHS.SANDBOX_HOME}/${repoName}`
         window.open(`vscode://vscode-remote/ssh-remote+${host}${remotePath}`, "_blank")
       }
     } catch {}
@@ -307,7 +307,7 @@ export function useGitActions({
         const [owner, repo] = repoFullName.split("/")
         const safeBranch = branch.name.replace(/[^a-zA-Z0-9._-]/g, "-")
         const localDir = `./${owner}-${repo}-${safeBranch}`
-        const rsyncCmd = `mkdir -p ${localDir} && \\\nwhile true; do \\\n  rsync -avz --filter=':- .gitignore' -e 'ssh -p ${port}' \\\n    ${userHost}:/home/daytona/${repoName}/ \\\n    ${localDir}/; \\\n  sleep 2; \\\ndone`
+        const rsyncCmd = `mkdir -p ${localDir} && \\\nwhile true; do \\\n  rsync -avz --filter=':- .gitignore' -e 'ssh -p ${port}' \\\n    ${userHost}:${PATHS.SANDBOX_HOME}/${repoName}/ \\\n    ${localDir}/; \\\n  sleep 2; \\\ndone`
         setRsyncCommand(rsyncCmd)
         setRsyncCopied(false)
         setRsyncModalOpen(true)

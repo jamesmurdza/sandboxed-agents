@@ -17,8 +17,9 @@ import {
   sendError,
   createContentAccumulator,
 } from "@/lib/streaming-helpers"
+import { TIMEOUTS, PATHS } from "@/lib/constants"
 
-export const maxDuration = 300 // 5 minute timeout for agent queries
+export const maxDuration = TIMEOUTS.AGENT_QUERY / 1000 // Convert ms to seconds
 
 export async function POST(req: Request) {
   // 1. Authenticate
@@ -48,7 +49,7 @@ export async function POST(req: Request) {
 
   // Determine repo name from database or request
   const actualRepoName = repoName || sandboxRecord.branch?.repo?.name || "repo"
-  const repoPath = `/home/daytona/${actualRepoName}`
+  const repoPath = `${PATHS.SANDBOX_HOME}/${actualRepoName}`
 
   // Capture record IDs for use in helper functions
   const sandboxDbId = sandboxRecord.id

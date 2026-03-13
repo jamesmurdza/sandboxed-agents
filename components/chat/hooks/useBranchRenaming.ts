@@ -1,5 +1,6 @@
 import { useState, useRef, useCallback } from "react"
 import type { Branch } from "@/lib/types"
+import { PATHS } from "@/lib/constants"
 
 // Export the return type for use in sub-components
 export type UseBranchRenamingReturn = ReturnType<typeof useBranchRenaming>
@@ -38,7 +39,7 @@ export function useBranchRenaming({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           sandboxId: branch.sandboxId,
-          repoPath: `/home/daytona/${repoName}`,
+          repoPath: `${PATHS.SANDBOX_HOME}/${repoName}`,
           action: "rename-branch",
           currentBranch: branch.name,
           newBranchName: newName,

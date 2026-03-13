@@ -12,8 +12,9 @@ import {
   decryptUserCredentials,
 } from "@/lib/api-helpers"
 import { createSSEStream, sendProgress, sendError, sendDone } from "@/lib/streaming-helpers"
+import { TIMEOUTS, SANDBOX_CONFIG, PATHS } from "@/lib/constants"
 
-export const maxDuration = 300 // 5 minute timeout for sandbox creation
+export const maxDuration = TIMEOUTS.SANDBOX_CREATE / 1000 // Convert ms to seconds
 
 export async function POST(req: Request) {
   // 1. Authenticate
@@ -86,10 +87,10 @@ export async function POST(req: Request) {
 
         const sandbox = await daytona.create({
           name: sandboxName,
-          snapshot: "daytona-medium",
+          snapshot: SANDBOX_CONFIG.DEFAULT_SNAPSHOT,
           autoStopInterval: sandboxAutoStopInterval,
           labels: {
-            "sandboxed-agents": "true",
+            [SANDBOX_CONFIG.LABEL_KEY]: "true",
             repo: `${repoOwner}/${repoName}`,
             branch: newBranch,
             userId: userId,
@@ -104,14 +105,14 @@ export async function POST(req: Request) {
         if (anthropicAuthType === "claude-max" && anthropicAuthToken) {
           const credentialsB64 = Buffer.from(anthropicAuthToken).toString("base64")
           await sandbox.process.executeCommand(
-            `mkdir -p /home/daytona/.claude && echo '${credentialsB64}' | base64 -d > /home/daytona/.claude/.credentials.json && chmod 600 /home/daytona/.claude/.credentials.json`
+            `mkdir -p ${PATHS.CLAUDE_CREDENTIALS_DIR} && echo '${credentialsB64}' | base64 -d > ${PATHS.CLAUDE_CREDENTIALS_FILE} && chmod 600 ${PATHS.CLAUDE_CREDENTIALS_FILE}`
           )
         }
 
         sendProgress(controller, "Cloning repository...")
 
         // Use Daytona SDK git interface
-        const repoPath = `/home/daytona/${repoName}`
+        const repoPath = `${PATHS.SANDBOX_HOME}/${repoName}`
         const cloneUrl = `https://github.com/${repoOwner}/${repoName}.git`
         const base = baseBranch || "main"
         await sandbox.git.clone(
@@ -174,8 +175,8 @@ export async function POST(req: Request) {
         // Get preview URL pattern for dev server URLs
         let previewUrlPattern: string | undefined
         try {
-          const previewLink = await sandbox.getPreviewLink(3000)
-          previewUrlPattern = previewLink.url.replace("3000", "{port}")
+          const previewLink = await sandbox.getPreviewLink(SANDBOX_CONFIG.DEFAULT_PREVIEW_PORT)
+          previewUrlPattern = previewLink.url.replace(String(SANDBOX_CONFIG.DEFAULT_PREVIEW_PORT), "{port}")
         } catch {
           // Preview URLs not available — non-critical
         }

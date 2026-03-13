@@ -14,9 +14,10 @@ import {
   updateSandboxAndBranchStatus,
   resetSandboxStatus,
 } from "@/lib/api-helpers"
+import { TIMEOUTS, PATHS } from "@/lib/constants"
 import type { Agent } from "@/lib/types"
 
-export const maxDuration = 60 // Only needs to start the background process
+export const maxDuration = TIMEOUTS.AGENT_EXECUTE / 1000 // Only needs to start the background process
 
 export async function POST(req: Request) {
   // 1. Authenticate
@@ -46,7 +47,7 @@ export async function POST(req: Request) {
 
   // Determine repo name from database or request
   const actualRepoName = repoName || sandboxRecord.branch?.repo?.name || "repo"
-  const repoPath = `/home/daytona/${actualRepoName}`
+  const repoPath = `${PATHS.SANDBOX_HOME}/${actualRepoName}`
 
   // Get agent and model from branch record
   const rawAgent = sandboxRecord.branch?.agent

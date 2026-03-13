@@ -25,6 +25,7 @@ import {
 } from "@jamesmurdza/coding-agents-sdk"
 import type { Sandbox as DaytonaSandbox } from "@daytonaio/sdk"
 import { type Agent, getProviderForAgent } from "@/lib/types"
+import { PATHS, SANDBOX_CONFIG } from "@/lib/constants"
 
 // =============================================================================
 // Types
@@ -107,12 +108,13 @@ Do not push — pushing is handled automatically.
 When you finish a task, provide a clear summary of what you did.`
 
   if (previewUrlPattern) {
-    const exampleUrl = previewUrlPattern.replace("{port}", "3000")
+    const defaultPort = String(SANDBOX_CONFIG.DEFAULT_PREVIEW_PORT)
+    const exampleUrl = previewUrlPattern.replace("{port}", defaultPort)
     prompt += `
 
 If you start a server or service on any port, provide the user with the preview URL.
 The preview URL pattern is: ${previewUrlPattern}
-Replace {port} with the actual port number. For example, if you start a server on port 3000, the URL is: ${exampleUrl}`
+Replace {port} with the actual port number. For example, if you start a server on port ${defaultPort}, the URL is: ${exampleUrl}`
   }
 
   return prompt
@@ -241,14 +243,12 @@ export function buildContentBlocks(
 // Session Persistence
 // =============================================================================
 
-const SESSION_FILE_PATH = "/home/daytona/.agent_session_id"
-
 export async function persistSessionId(
   sandbox: DaytonaSandbox,
   sessionId: string
 ): Promise<void> {
   await sandbox.process.executeCommand(
-    `echo '${sessionId}' > ${SESSION_FILE_PATH}`
+    `echo '${sessionId}' > ${PATHS.AGENT_SESSION_FILE}`
   )
 }
 
@@ -257,7 +257,7 @@ export async function readPersistedSessionId(
 ): Promise<string | undefined> {
   try {
     const result = await sandbox.process.executeCommand(
-      `cat ${SESSION_FILE_PATH} 2>/dev/null`
+      `cat ${PATHS.AGENT_SESSION_FILE} 2>/dev/null`
     )
     if (!result.exitCode && result.result.trim()) {
       return result.result.trim()

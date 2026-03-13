@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from "react"
 import { X, RefreshCw, Loader2, GitCommitHorizontal, GitBranch } from "lucide-react"
 import { cn } from "@/lib/utils"
+import { PATHS } from "@/lib/constants"
 
 interface GitCommit {
   hash: string
@@ -38,7 +39,7 @@ export function GitHistoryPanel({ sandboxId, repoName, baseBranch, onClose, onSc
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           sandboxId,
-          repoPath: `/home/daytona/${repoName}`,
+          repoPath: `${PATHS.SANDBOX_HOME}/${repoName}`,
           action: "log",
           targetBranch: baseBranch,
         }),

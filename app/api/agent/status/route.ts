@@ -11,6 +11,7 @@ import {
   notFound,
   unauthorized,
 } from "@/lib/api-helpers"
+import { PATHS } from "@/lib/constants"
 
 export async function POST(req: Request) {
   // 1. Authenticate
@@ -95,7 +96,7 @@ export async function POST(req: Request) {
 
     // 6. Build poll options (SDK needs session config to reattach to background session)
     const repoName = execution.message.branch.repo?.name || "repo"
-    const repoPath = `/home/daytona/${repoName}`
+    const repoPath = `${PATHS.SANDBOX_HOME}/${repoName}`
     const previewUrlPattern = sandbox.previewUrlPattern || undefined
 
     // Get agent and model from branch
