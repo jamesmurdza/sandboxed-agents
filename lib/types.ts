@@ -31,23 +31,24 @@ export interface ModelOption {
 
 export const agentModels: Record<Agent, ModelOption[]> = {
   "claude-code": [
+    { value: "default", label: "Default" },
     { value: "sonnet", label: "Sonnet" },
     { value: "opus", label: "Opus" },
     { value: "haiku", label: "Haiku" },
   ],
   "opencode": [
+    { value: "default", label: "Default" },
     { value: "anthropic/claude-sonnet-4-20250514", label: "Claude Sonnet 4" },
-    { value: "openai/gpt-4.1", label: "GPT-4.1" },
-    { value: "openai/o3", label: "OpenAI o3" },
-    { value: "google/gemini-2.5-pro", label: "Gemini 2.5 Pro" },
+    { value: "openai/gpt-4o", label: "GPT-4o" },
+    { value: "google/gemini-2.0-flash-exp", label: "Gemini 2.0 Flash" },
     { value: "big-pickle/bp1-mini", label: "Big Pickle (Free)" },
   ],
 }
 
 // Default model per agent
 export const defaultAgentModel: Record<Agent, string> = {
-  "claude-code": "sonnet",
-  "opencode": "anthropic/claude-sonnet-4-20250514",
+  "claude-code": "default",
+  "opencode": "default",
 }
 
 export interface ToolCall {

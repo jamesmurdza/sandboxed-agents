@@ -287,7 +287,8 @@ export async function createAgentSession(
   const sessionOptions: SessionOptions = {
     sandbox: sandbox as unknown as SessionOptions['sandbox'],
     systemPrompt,
-    model: options.model,
+    // Pass undefined for model if "default" to let SDK choose
+    model: options.model === "default" ? undefined : options.model,
     sessionId: options.sessionId,
     env: options.env,
   }
@@ -359,6 +360,9 @@ export async function startBackgroundAgent(
     backgroundSessionId: options.backgroundSessionId,
   })
 
+  // Pass undefined for model if "default" to let SDK choose
+  const modelToUse = options.model === "default" ? undefined : options.model
+
   // If we have an existing background session ID, reuse it via getBackgroundSession.
   // Otherwise, create a new background session.
   const bgSession = options.backgroundSessionId
@@ -366,13 +370,13 @@ export async function startBackgroundAgent(
         sandbox: sandboxForSdk,
         backgroundSessionId: options.backgroundSessionId,
         systemPrompt,
-        model: options.model,
+        model: modelToUse,
         env: options.env,
       })
     : await sdkCreateBackgroundSession(provider, {
         sandbox: sandboxForSdk,
         systemPrompt,
-        model: options.model,
+        model: modelToUse,
         sessionId: options.sessionId,
         env: options.env,
       })
@@ -409,6 +413,9 @@ export async function pollBackgroundAgent(
       options.previewUrlPattern
     )
 
+    // Pass undefined for model if "default" to let SDK choose
+    const modelToUse = options.model === "default" ? undefined : options.model
+
     // Cast sandbox for SDK version compatibility
     // Must pass full session options when reattaching - SDK recreates the provider
 
@@ -416,7 +423,7 @@ export async function pollBackgroundAgent(
       sandbox: sandbox as unknown as NonNullable<BackgroundSessionOptions['sandbox']>,
       backgroundSessionId,
       systemPrompt,
-      model: options.model,
+      model: modelToUse,
       env: options.env,
     })
 
