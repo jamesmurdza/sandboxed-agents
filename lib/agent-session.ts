@@ -24,7 +24,7 @@ import {
   type BackgroundSessionOptions,
 } from "@jamesmurdza/coding-agents-sdk"
 import type { Sandbox as DaytonaSandbox } from "@daytonaio/sdk"
-import { type Agent, agentToProvider } from "@/lib/types"
+import { type Agent, getProviderForAgent } from "@/lib/types"
 
 // =============================================================================
 // Types
@@ -292,9 +292,9 @@ export async function createAgentSession(
     env: options.env,
   }
 
-  // Map agent type to SDK provider name
+  // Map agent type to SDK provider name (handles legacy "claude" values)
   const agent = options.agent || "claude-code"
-  const provider = agentToProvider[agent]
+  const provider = getProviderForAgent(agent)
 
   console.log("[agent-session] createAgentSession", {
     repoPath: options.repoPath,
@@ -347,9 +347,9 @@ export async function startBackgroundAgent(
   // Cast sandbox for SDK version compatibility
   const sandboxForSdk = sandbox as unknown as NonNullable<BackgroundSessionOptions['sandbox']>
 
-  // Map agent type to SDK provider name
+  // Map agent type to SDK provider name (handles legacy "claude" values)
   const agent = options.agent || "claude-code"
-  const provider = agentToProvider[agent]
+  const provider = getProviderForAgent(agent)
 
   console.log("[agent-session] startBackgroundAgent", {
     repoPath: options.repoPath,

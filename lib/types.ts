@@ -11,6 +11,18 @@ export const agentToProvider: Record<Agent, ProviderName> = {
   "opencode": "opencode",
 }
 
+// Helper to get provider from agent string (handles legacy "claude" value)
+export function getProviderForAgent(agent: string | undefined): ProviderName {
+  if (!agent || agent === "claude" || agent === "claude-code") {
+    return "claude"
+  }
+  if (agent === "opencode") {
+    return "opencode"
+  }
+  // Fallback for any other value
+  return "claude"
+}
+
 // Model configurations per agent
 export interface ModelOption {
   value: string

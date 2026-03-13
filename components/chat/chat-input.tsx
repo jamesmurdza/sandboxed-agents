@@ -33,9 +33,12 @@ export const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>(
     { branch, input, onInputChange, onSend, onStop, onAgentChange, onModelChange, isMobile },
     ref
   ) {
-    const currentAgent = (branch.agent || "claude-code") as Agent
+    // Normalize agent value (handle legacy "claude" value from database)
+    const rawAgent = branch.agent as string | undefined
+    const normalizedAgent = (!rawAgent || rawAgent === "claude") ? "claude-code" : rawAgent
+    const currentAgent = normalizedAgent as Agent
     const currentModel = branch.model || defaultAgentModel[currentAgent]
-    const modelOptions = agentModels[currentAgent]
+    const modelOptions = agentModels[currentAgent] || agentModels["claude-code"]
     const canSend = input.trim() && branch.status !== BRANCH_STATUS.RUNNING && branch.status !== BRANCH_STATUS.CREATING && branch.sandboxId
     const isReady = branch.sandboxId && (branch.status !== BRANCH_STATUS.CREATING)
 
