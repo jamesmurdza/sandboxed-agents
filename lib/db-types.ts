@@ -90,7 +90,7 @@ export function transformBranch(dbBranch: DbBranch): Branch {
     status: dbBranch.status as Branch["status"],
     prUrl: dbBranch.prUrl || undefined,
     draftPrompt: dbBranch.draftPrompt || undefined,
-    agent: (dbBranch.agent || "claude") as Branch["agent"],
+    agent: (dbBranch.agent || "claude-code") as Branch["agent"],
     model: dbBranch.model || undefined,
     sandboxId: dbBranch.sandbox?.sandboxId,
     contextId: dbBranch.sandbox?.contextId || undefined,
