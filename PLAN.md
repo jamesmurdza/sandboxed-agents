@@ -41,6 +41,19 @@ Vercel Pro has 60-second function timeout. Solution:
 - Server resumes from that position
 - User never notices the reconnect (~50ms gap)
 
+### Handling Multiple Clients
+
+Multiple clients may connect to the same execution:
+- Same user with multiple tabs
+- User closes tab and reopens mid-execution
+- User reconnects after network interruption
+
+Solution: **Store events in database** with sequential IDs. This enables:
+1. Multiple clients share one source of truth
+2. Reconnecting clients catch up from `lastEventId`
+3. New clients joining mid-execution see full history
+4. Server restarts don't lose event history
+
 ## Architecture
 
 ### Event Flow
