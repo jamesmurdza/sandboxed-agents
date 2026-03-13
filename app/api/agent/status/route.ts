@@ -185,11 +185,15 @@ export async function POST(req: Request) {
     })
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : "Unknown error"
+    console.error("[agent/status] error:", message)
+    // Return error but don't clear content - let client handle gracefully
+    // The polling will retry and may recover
     return Response.json({
       status: "error",
       error: message,
       content: "",
       toolCalls: [],
+      contentBlocks: [],
     })
   }
 }

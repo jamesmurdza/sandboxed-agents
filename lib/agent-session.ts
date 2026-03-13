@@ -434,13 +434,18 @@ export async function pollBackgroundAgent(
       sessionId: sessionId || undefined,
     }
   } catch (err) {
-    // Clean up cache on error
-    backgroundSessionEvents.delete(backgroundSessionId)
+    // DON'T clear cache on transient errors - preserve accumulated content
+    // This prevents losing streaming progress due to temporary network issues
+    // The cache will be cleared on the next successful poll or when completed
+    const cachedEvents = backgroundSessionEvents.get(backgroundSessionId) || []
+    const { content, toolCalls, contentBlocks } = buildContentBlocks(cachedEvents)
+
     return {
       status: "error",
-      content: "",
-      toolCalls: [],
-      contentBlocks: [],
+      // Return accumulated content so far, don't lose progress
+      content,
+      toolCalls,
+      contentBlocks,
       error: err instanceof Error ? err.message : "Unknown error polling background session",
     }
   }
