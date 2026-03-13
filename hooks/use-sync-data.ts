@@ -1,6 +1,10 @@
 import { useCallback, useRef } from "react"
 import type { Branch } from "@/lib/types"
 import type { TransformedRepo, DbMessage } from "@/lib/db-types"
+import {
+  updateBranchAcrossRepos,
+  setBranchesInRepo,
+} from "@/lib/state-utils"
 
 // Sync data shape from the API
 export interface SyncBranch {
@@ -31,6 +35,36 @@ interface UseSyncDataOptions {
   activeBranchIdRef: React.MutableRefObject<string | null>
   /** Ref to check if a message is currently being streamed - skip sync if so */
   streamingMessageIdRef?: React.MutableRefObject<string | null>
+}
+
+/**
+ * Converts a SyncBranch to a Branch with default values
+ */
+function syncBranchToBranch(syncBranch: SyncBranch): Branch {
+  return {
+    id: syncBranch.id,
+    name: syncBranch.name,
+    status: syncBranch.status as Branch["status"],
+    baseBranch: syncBranch.baseBranch || "main",
+    prUrl: syncBranch.prUrl || undefined,
+    sandboxId: syncBranch.sandboxId || undefined,
+    messages: [],
+  }
+}
+
+/**
+ * Merges sync branch data into existing branch, preserving messages
+ */
+function mergeSyncBranchIntoExisting(
+  existingBranch: Branch,
+  syncBranch: SyncBranch
+): Branch {
+  return {
+    ...existingBranch,
+    status: syncBranch.status as Branch["status"],
+    prUrl: syncBranch.prUrl || undefined,
+    sandboxId: syncBranch.sandboxId || undefined,
+  }
 }
 
 /**
@@ -68,7 +102,7 @@ export function useSyncData({ setRepos, activeBranchIdRef, streamingMessageIdRef
     if (reposChanged) {
       // Repos added or removed - update the full list
       setRepos((prev) => {
-        const newRepos = data.repos.map((syncRepo) => {
+        return data.repos.map((syncRepo) => {
           // Try to preserve existing local data (messages, etc)
           const existing = prev.find((r) => r.id === syncRepo.id)
           if (existing) {
@@ -77,24 +111,9 @@ export function useSyncData({ setRepos, activeBranchIdRef, streamingMessageIdRef
               ...existing,
               branches: syncRepo.branches.map((syncBranch) => {
                 const existingBranch = existing.branches.find((b) => b.id === syncBranch.id)
-                if (existingBranch) {
-                  return {
-                    ...existingBranch,
-                    status: syncBranch.status as Branch["status"],
-                    prUrl: syncBranch.prUrl || undefined,
-                    sandboxId: syncBranch.sandboxId || undefined,
-                  }
-                }
-                // New branch from sync
-                return {
-                  id: syncBranch.id,
-                  name: syncBranch.name,
-                  status: syncBranch.status as Branch["status"],
-                  baseBranch: syncBranch.baseBranch || "main",
-                  prUrl: syncBranch.prUrl || undefined,
-                  sandboxId: syncBranch.sandboxId || undefined,
-                  messages: [],
-                }
+                return existingBranch
+                  ? mergeSyncBranchIntoExisting(existingBranch, syncBranch)
+                  : syncBranchToBranch(syncBranch)
               }),
             }
           }
@@ -105,18 +124,9 @@ export function useSyncData({ setRepos, activeBranchIdRef, streamingMessageIdRef
             owner: syncRepo.owner,
             avatar: syncRepo.avatar || "",
             defaultBranch: syncRepo.defaultBranch,
-            branches: syncRepo.branches.map((b) => ({
-              id: b.id,
-              name: b.name,
-              status: b.status as Branch["status"],
-              baseBranch: b.baseBranch || "main",
-              prUrl: b.prUrl || undefined,
-              sandboxId: b.sandboxId || undefined,
-              messages: [],
-            })),
+            branches: syncRepo.branches.map(syncBranchToBranch),
           }
         })
-        return newRepos
       })
     } else {
       // No repo-level changes, check for branch-level changes
@@ -136,31 +146,17 @@ export function useSyncData({ setRepos, activeBranchIdRef, streamingMessageIdRef
         if (branchesChanged) {
           // Update this repo's branches
           setRepos((prev) =>
-            prev.map((r) => {
-              if (r.id !== syncRepo.id) return r
-              return {
-                ...r,
-                branches: syncRepo.branches.map((syncBranch) => {
-                  const existingBranch = r.branches.find((b) => b.id === syncBranch.id)
-                  if (existingBranch) {
-                    return {
-                      ...existingBranch,
-                      status: syncBranch.status as Branch["status"],
-                      prUrl: syncBranch.prUrl || undefined,
-                    }
-                  }
-                  return {
-                    id: syncBranch.id,
-                    name: syncBranch.name,
-                    status: syncBranch.status as Branch["status"],
-                    baseBranch: syncBranch.baseBranch || "main",
-                    prUrl: syncBranch.prUrl || undefined,
-                    sandboxId: syncBranch.sandboxId || undefined,
-                    messages: [],
-                  }
-                }),
-              }
-            })
+            setBranchesInRepo(
+              prev,
+              syncRepo.id,
+              syncRepo.branches.map((syncBranch) => {
+                const repo = prev.find((r) => r.id === syncRepo.id)
+                const existingBranch = repo?.branches.find((b) => b.id === syncBranch.id)
+                return existingBranch
+                  ? mergeSyncBranchIntoExisting(existingBranch, syncBranch)
+                  : syncBranchToBranch(syncBranch)
+              })
+            )
           )
         } else {
           // Check for individual branch updates (status, prUrl, messages)
@@ -171,24 +167,18 @@ export function useSyncData({ setRepos, activeBranchIdRef, streamingMessageIdRef
             // Status change
             if (lastBranch.status !== syncBranch.status) {
               setRepos((prev) =>
-                prev.map((r) => ({
-                  ...r,
-                  branches: r.branches.map((b) =>
-                    b.id === syncBranch.id ? { ...b, status: syncBranch.status as Branch["status"] } : b
-                  ),
-                }))
+                updateBranchAcrossRepos(prev, syncBranch.id, {
+                  status: syncBranch.status as Branch["status"],
+                })
               )
             }
 
             // PR URL change
             if (!lastBranch.prUrl && syncBranch.prUrl) {
               setRepos((prev) =>
-                prev.map((r) => ({
-                  ...r,
-                  branches: r.branches.map((b) =>
-                    b.id === syncBranch.id ? { ...b, prUrl: syncBranch.prUrl || undefined } : b
-                  ),
-                }))
+                updateBranchAcrossRepos(prev, syncBranch.id, {
+                  prUrl: syncBranch.prUrl || undefined,
+                })
               )
             }
 
@@ -219,39 +209,14 @@ export function useSyncData({ setRepos, activeBranchIdRef, streamingMessageIdRef
                     }
                     if (msgData.messages) {
                       setRepos((prev) =>
-                        prev.map((r) => ({
-                          ...r,
-                          branches: r.branches.map((b) => {
-                            if (b.id !== syncBranch.id) return b
-
-                            // Convert API messages to local format
-                            const apiMessages = msgData.messages.map((m: DbMessage) => ({
-                              id: m.id,
-                              role: m.role as "user" | "assistant",
-                              content: m.content,
-                              toolCalls: m.toolCalls as import("@/lib/types").Message["toolCalls"],
-                              contentBlocks: m.contentBlocks as import("@/lib/types").Message["contentBlocks"],
-                              timestamp: m.timestamp || "",
-                              commitHash: m.commitHash || undefined,
-                              commitMessage: m.commitMessage || undefined,
-                            }))
-
-                            // Create a set of API message IDs for quick lookup
-                            const apiMessageIds = new Set(apiMessages.map((m: { id: string }) => m.id))
-
-                            // Find local messages that aren't in the API response yet (optimistic updates)
-                            // These are likely still being saved to the database
-                            const optimisticMessages = b.messages.filter(
-                              (m) => !apiMessageIds.has(m.id)
-                            )
-
-                            // Merge: API messages first (they're authoritative), then optimistic messages
-                            return {
-                              ...b,
-                              messages: [...apiMessages, ...optimisticMessages],
-                            }
-                          }),
-                        }))
+                        updateBranchAcrossRepos(prev, syncBranch.id, {
+                          messages: mergeMessages(
+                            prev.find((r) =>
+                              r.branches.some((b) => b.id === syncBranch.id)
+                            )?.branches.find((b) => b.id === syncBranch.id)?.messages || [],
+                            msgData.messages
+                          ),
+                        })
                       )
                     }
                   })
@@ -275,6 +240,36 @@ export function useSyncData({ setRepos, activeBranchIdRef, streamingMessageIdRef
     handleSyncData,
     lastMessageIdsRef,
   }
+}
+
+/**
+ * Merges API messages with local optimistic messages
+ */
+function mergeMessages(
+  localMessages: Branch["messages"],
+  apiMessages: DbMessage[]
+): Branch["messages"] {
+  // Convert API messages to local format
+  const convertedApiMessages = apiMessages.map((m: DbMessage) => ({
+    id: m.id,
+    role: m.role as "user" | "assistant",
+    content: m.content,
+    toolCalls: m.toolCalls as import("@/lib/types").Message["toolCalls"],
+    contentBlocks: m.contentBlocks as import("@/lib/types").Message["contentBlocks"],
+    timestamp: m.timestamp || "",
+    commitHash: m.commitHash || undefined,
+    commitMessage: m.commitMessage || undefined,
+  }))
+
+  // Create a set of API message IDs for quick lookup
+  const apiMessageIds = new Set(convertedApiMessages.map((m) => m.id))
+
+  // Find local messages that aren't in the API response yet (optimistic updates)
+  // These are likely still being saved to the database
+  const optimisticMessages = localMessages.filter((m) => !apiMessageIds.has(m.id))
+
+  // Merge: API messages first (they're authoritative), then optimistic messages
+  return [...convertedApiMessages, ...optimisticMessages]
 }
 
 export type SyncDataHandler = ReturnType<typeof useSyncData>

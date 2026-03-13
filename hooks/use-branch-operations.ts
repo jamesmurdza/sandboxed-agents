@@ -1,7 +1,12 @@
-import { useCallback, useRef } from "react"
+import { useCallback } from "react"
 import type { Branch, Message } from "@/lib/types"
 import type { TransformedRepo } from "@/lib/db-types"
 import { BRANCH_STATUS } from "@/lib/constants"
+import {
+  updateBranchInRepo,
+  updateMessageInBranch,
+  addMessageToBranch,
+} from "@/lib/state-utils"
 
 interface UseBranchOperationsOptions {
   repos: TransformedRepo[]
@@ -32,23 +37,7 @@ export function useBranchOperations({
     // The actual ID to use for database operations (might be a new server-side ID)
     const dbBranchId = updates.id || branchId
 
-    setRepos((prev) =>
-      prev.map((r) => {
-        if (r.id !== activeRepo.id) return r
-        return {
-          ...r,
-          branches: r.branches.map((b) => {
-            if (b.id !== branchId) return b
-            // If updates include a new id, use it to replace the branch id
-            const newBranch = { ...b, ...updates }
-            if (updates.id) {
-              newBranch.id = updates.id
-            }
-            return newBranch
-          }),
-        }
-      })
-    )
+    setRepos((prev) => updateBranchInRepo(prev, activeRepo.id, branchId, updates))
 
     // Also update activeBranchId if it's being replaced
     if (updates.id && activeBranchIdRef.current === branchId) {
@@ -71,19 +60,7 @@ export function useBranchOperations({
   const handleSaveDraftForBranch = useCallback((branchId: string, draftPrompt: string) => {
     if (!activeRepo) return
 
-    // Update local state
-    setRepos((prev) =>
-      prev.map((r) => {
-        if (r.id !== activeRepo.id) return r
-        return {
-          ...r,
-          branches: r.branches.map((b) => {
-            if (b.id !== branchId) return b
-            return { ...b, draftPrompt }
-          }),
-        }
-      })
-    )
+    setRepos((prev) => updateBranchInRepo(prev, activeRepo.id, branchId, { draftPrompt }))
 
     // Persist to database
     fetch("/api/branches", {
@@ -98,21 +75,7 @@ export function useBranchOperations({
     if (!activeRepo) return message.id
 
     // Add message to local state immediately with temporary ID
-    setRepos((prev) =>
-      prev.map((r) => {
-        if (r.id !== activeRepo.id) return r
-        return {
-          ...r,
-          branches: r.branches.map((b) => {
-            if (b.id !== branchId) return b
-            return {
-              ...b,
-              messages: [...b.messages, message],
-            }
-          }),
-        }
-      })
-    )
+    setRepos((prev) => addMessageToBranch(prev, activeRepo.id, branchId, message))
 
     // Save message to database and get the real DB ID
     try {
@@ -141,23 +104,7 @@ export function useBranchOperations({
 
       if (dbId && dbId !== message.id) {
         // Update local state with the real database ID
-        setRepos((prev) =>
-          prev.map((r) => {
-            if (r.id !== activeRepo.id) return r
-            return {
-              ...r,
-              branches: r.branches.map((b) => {
-                if (b.id !== branchId) return b
-                return {
-                  ...b,
-                  messages: b.messages.map((m) =>
-                    m.id === message.id ? { ...m, id: dbId } : m
-                  ),
-                }
-              }),
-            }
-          })
-        )
+        setRepos((prev) => updateMessageInBranch(prev, activeRepo.id, branchId, message.id, { id: dbId }))
         return dbId
       }
       return message.id
@@ -172,23 +119,7 @@ export function useBranchOperations({
   const handleUpdateMessage = useCallback((branchId: string, messageId: string, updates: Partial<Message>) => {
     if (!activeRepo) return
 
-    setRepos((prev) =>
-      prev.map((r) => {
-        if (r.id !== activeRepo.id) return r
-        return {
-          ...r,
-          branches: r.branches.map((b) => {
-            if (b.id !== branchId) return b
-            return {
-              ...b,
-              messages: b.messages.map((m) =>
-                m.id === messageId ? { ...m, ...updates } : m
-              ),
-            }
-          }),
-        }
-      })
-    )
+    setRepos((prev) => updateMessageInBranch(prev, activeRepo.id, branchId, messageId, updates))
 
     // Update message in database
     fetch("/api/branches/messages", {

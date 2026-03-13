@@ -1,6 +1,12 @@
 import { useCallback } from "react"
 import type { Branch } from "@/lib/types"
 import type { TransformedRepo } from "@/lib/db-types"
+import {
+  removeRepo,
+  reorderRepos,
+  addBranchToRepo,
+  removeBranchFromRepo,
+} from "@/lib/state-utils"
 
 interface UseRepoOperationsOptions {
   repos: TransformedRepo[]
@@ -50,7 +56,7 @@ export function useRepoOperations({
     // Delete repo from database
     fetch(`/api/repos?id=${repoId}`, { method: "DELETE" }).catch(() => {})
 
-    setRepos((prev) => prev.filter((r) => r.id !== repoId))
+    setRepos((prev) => removeRepo(prev, repoId))
     if (activeRepoId === repoId) {
       const remaining = repos.filter((r) => r.id !== repoId)
       selectRepo(remaining[0]?.id ?? "")
@@ -60,23 +66,13 @@ export function useRepoOperations({
 
   // Reorder repos (drag and drop)
   const handleReorderRepos = useCallback((fromIndex: number, toIndex: number) => {
-    setRepos((prev) => {
-      const next = [...prev]
-      const [moved] = next.splice(fromIndex, 1)
-      next.splice(toIndex, 0, moved)
-      return next
-    })
+    setRepos((prev) => reorderRepos(prev, fromIndex, toIndex))
   }, [setRepos])
 
   // Add a new branch to the active repo
   const handleAddBranch = useCallback((branch: Branch) => {
     if (!activeRepo) return
-    setRepos((prev) =>
-      prev.map((r) => {
-        if (r.id !== activeRepo.id) return r
-        return { ...r, branches: [...r.branches, branch] }
-      })
-    )
+    setRepos((prev) => addBranchToRepo(prev, activeRepo.id, branch))
     setActiveBranchId(branch.id)
   }, [activeRepo, setRepos, setActiveBranchId])
 
@@ -111,15 +107,7 @@ export function useRepoOperations({
     // Delete from database
     fetch(`/api/branches?id=${branchId}`, { method: "DELETE" }).catch(() => {})
 
-    setRepos((prev) =>
-      prev.map((r) => {
-        if (r.id !== activeRepo.id) return r
-        return {
-          ...r,
-          branches: r.branches.filter((b) => b.id !== branchId),
-        }
-      })
-    )
+    setRepos((prev) => removeBranchFromRepo(prev, activeRepo.id, branchId))
 
     if (activeBranchId === branchId) {
       const remaining = activeRepo.branches.filter((b) => b.id !== branchId)
