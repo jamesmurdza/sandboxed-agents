@@ -59,24 +59,16 @@ export function SwitchAgentDialog({
 
   return (
     <Dialog open={!!newAgent} onOpenChange={handleOpenChange}>
-      <DialogContent className="sm:max-w-[440px]">
+      <DialogContent className="sm:max-w-[400px]">
         <DialogHeader>
-          <DialogTitle className="text-sm">Switch Agent?</DialogTitle>
+          <DialogTitle className="flex items-center gap-2 text-sm">
+            <AlertTriangle className="h-4 w-4 text-amber-600 dark:text-amber-400" />
+            Switch to {newAgent ? agentLabels[newAgent] : ""}?
+          </DialogTitle>
         </DialogHeader>
-        <div className="flex flex-col gap-3">
-          <div className="flex flex-col gap-2 rounded-md border border-border bg-secondary/50 p-3">
-            <div className="flex items-center gap-2 text-xs text-amber-600 dark:text-amber-400">
-              <AlertTriangle className="h-3.5 w-3.5" />
-              <span className="font-medium">Context will be reset</span>
-            </div>
-            <p className="text-xs text-muted-foreground mt-1">
-              Switching from <span className="font-semibold text-foreground">{agentLabels[currentAgent]}</span> to{" "}
-              <span className="font-semibold text-foreground">{newAgent ? agentLabels[newAgent] : ""}</span> will start a new conversation context.
-            </p>
-          </div>
-
-          <p className="text-xs text-muted-foreground">
-            Your previous messages will remain visible in the chat, but the new agent won't have access to them. This is useful when you want to try a different approach or agent.
+        <div className="flex flex-col gap-2">
+          <p className="text-sm text-muted-foreground">
+            Your previous messages will remain visible, but the new agent won't have access to the conversation history.
           </p>
         </div>
         <DialogFooter className="gap-2">
