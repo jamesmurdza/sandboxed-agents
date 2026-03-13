@@ -47,6 +47,7 @@ export async function POST(req: Request) {
       baseBranch,
       startCommit,
       status: "idle",
+      agent: "claude-code",
     },
     include: {
       sandbox: true,

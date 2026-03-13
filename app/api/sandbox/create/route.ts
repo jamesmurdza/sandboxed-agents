@@ -232,6 +232,7 @@ export async function POST(req: Request) {
             baseBranch: baseBranch || "main",
             startCommit: headCommit, // Store the HEAD commit for commit detection baseline
             status: "idle",
+            agent: "claude-code",
           },
         })
 
