@@ -11,6 +11,8 @@ interface UseExecutionPollingOptions {
   onAddMessage: (message: Message) => Promise<string>
   onForceSave: () => void
   onCommitsDetected?: () => void
+  /** Ref to signal that streaming is active - used by sync to avoid overwriting */
+  streamingMessageIdRef?: React.MutableRefObject<string | null>
 }
 
 /**
@@ -24,6 +26,7 @@ export function useExecutionPolling({
   onAddMessage,
   onForceSave,
   onCommitsDetected,
+  streamingMessageIdRef,
 }: UseExecutionPollingOptions) {
   const pollingRef = useRef<NodeJS.Timeout | null>(null)
   const currentExecutionIdRef = useRef<string | null>(null)
@@ -36,6 +39,11 @@ export function useExecutionPolling({
   const branchSandboxIdRef = useRef(branch.sandboxId)
   branchNameRef.current = branch.name
   branchSandboxIdRef.current = branch.sandboxId
+
+  // Use a ref to track branch messages to avoid dependency array issues
+  // This prevents the polling callback from being recreated on every message update
+  const branchMessagesRef = useRef(branch.messages)
+  branchMessagesRef.current = branch.messages
 
   // Update startingCommitRef when branch changes
   useEffect(() => {
@@ -150,6 +158,10 @@ export function useExecutionPolling({
           }
           currentExecutionIdRef.current = null
           currentMessageIdRef.current = null
+          // Clear streaming signal so sync can resume normal behavior
+          if (streamingMessageIdRef) {
+            streamingMessageIdRef.current = null
+          }
 
           if (data.status === EXECUTION_STATUS.ERROR && data.error) {
             onUpdateMessage(messageId, {
@@ -191,7 +203,7 @@ export function useExecutionPolling({
                 const logData = await logRes.json()
                 const allCommits: { shortHash: string; message: string }[] = logData.commits || []
 
-                const chatCommits = new Set(branch.messages.filter((m) => m.commitHash).map((m) => m.commitHash))
+                const chatCommits = new Set(branchMessagesRef.current.filter((m) => m.commitHash).map((m) => m.commitHash))
                 const newCommits = allCommits.filter(c => !chatCommits.has(c.shortHash))
 
                 for (const c of [...newCommits].reverse()) {
@@ -232,13 +244,21 @@ export function useExecutionPolling({
       }
     }
 
+    // Signal that streaming is starting (used by sync to avoid overwriting)
+    if (streamingMessageIdRef) {
+      streamingMessageIdRef.current = messageId
+    }
+    currentMessageIdRef.current = messageId
+
     pendingPollTimeoutRef.current = setTimeout(() => {
       pendingPollTimeoutRef.current = null
       poll()
       pollingRef.current = setInterval(poll, 500)
     }, 150)
-  // Note: branch.sandboxId and branch.name are accessed via refs to avoid stale closures when branch is renamed
-  }, [branch.messages, repoName, onUpdateMessage, onUpdateBranch, onAddMessage, onForceSave, onCommitsDetected])
+  // Note: branch.sandboxId, branch.name, and branch.messages are accessed via refs to avoid stale closures
+  // This is critical - including branch.messages in deps causes the callback to be recreated on every
+  // message update, which clears the polling interval and causes streaming content to disappear
+  }, [repoName, onUpdateMessage, onUpdateBranch, onAddMessage, onForceSave, onCommitsDetected, streamingMessageIdRef])
 
   startPollingRef.current = startPolling
 
@@ -255,7 +275,8 @@ export function useExecutionPolling({
     }
 
     if (currentMessageIdRef.current) {
-      const lastMsg = branch.messages.find(m => m.id === currentMessageIdRef.current)
+      // Use ref to get current messages to avoid dependency issues
+      const lastMsg = branchMessagesRef.current.find(m => m.id === currentMessageIdRef.current)
       const currentContent = lastMsg?.content || ""
       onUpdateMessage(currentMessageIdRef.current, {
         content: currentContent ? `${currentContent}\n\n[Stopped by user]` : "[Stopped by user]"
@@ -264,8 +285,12 @@ export function useExecutionPolling({
 
     currentExecutionIdRef.current = null
     currentMessageIdRef.current = null
+    // Clear streaming signal so sync can resume normal behavior
+    if (streamingMessageIdRef) {
+      streamingMessageIdRef.current = null
+    }
     onUpdateBranch({ status: BRANCH_STATUS.IDLE })
-  }, [branch.messages, onUpdateMessage, onUpdateBranch])
+  }, [onUpdateMessage, onUpdateBranch, streamingMessageIdRef])
 
   // Check and resume polling on mount/branch switch
   useEffect(() => {

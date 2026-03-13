@@ -29,13 +29,15 @@ export interface SyncData {
 interface UseSyncDataOptions {
   setRepos: React.Dispatch<React.SetStateAction<TransformedRepo[]>>
   activeBranchIdRef: React.MutableRefObject<string | null>
+  /** Ref to check if a message is currently being streamed - skip sync if so */
+  streamingMessageIdRef?: React.MutableRefObject<string | null>
 }
 
 /**
  * Provides the sync data handler for cross-device sync
  * Detects changes from other devices and updates local state
  */
-export function useSyncData({ setRepos, activeBranchIdRef }: UseSyncDataOptions) {
+export function useSyncData({ setRepos, activeBranchIdRef, streamingMessageIdRef }: UseSyncDataOptions) {
   // Track last message IDs to detect new messages
   const lastMessageIdsRef = useRef<Map<string, string | null>>(new Map())
 
@@ -199,10 +201,22 @@ export function useSyncData({ setRepos, activeBranchIdRef }: UseSyncDataOptions)
               // The unread indicator can be derived when rendering the sidebar.
               // This avoids re-rendering the entire app every time a running agent produces a message.
               if (syncBranch.id === activeBranchIdRef.current) {
+                // CRITICAL: Skip message reload if a message is currently being streamed
+                // This prevents sync from overwriting streaming content with stale DB data
+                // The polling mechanism handles real-time updates during streaming
+                if (streamingMessageIdRef?.current) {
+                  // Skip this sync cycle - streaming is in progress
+                  return
+                }
+
                 // Reload messages for active branch
                 fetch(`/api/branches/messages?branchId=${syncBranch.id}`)
                   .then((r) => r.json())
                   .then((msgData) => {
+                    // Double-check streaming hasn't started while we were fetching
+                    if (streamingMessageIdRef?.current) {
+                      return
+                    }
                     if (msgData.messages) {
                       setRepos((prev) =>
                         prev.map((r) => ({
@@ -241,7 +255,7 @@ export function useSyncData({ setRepos, activeBranchIdRef }: UseSyncDataOptions)
         lastMessageIdsRef.current.set(branch.id, branch.lastMessageId)
       }
     }
-  }, [setRepos, activeBranchIdRef])
+  }, [setRepos, activeBranchIdRef, streamingMessageIdRef])
 
   return {
     handleSyncData,

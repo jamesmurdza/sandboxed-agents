@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect, useState, useRef } from "react"
 import { useSession, signOut } from "next-auth/react"
 import { useRouter } from "next/navigation"
 import { RepoSidebar } from "@/components/repo-sidebar"
@@ -89,6 +89,10 @@ export default function Home() {
     setActiveBranchId,
   })
 
+  // Streaming state ref - signals when a message is actively being streamed
+  // This is used to prevent sync from overwriting streaming content
+  const streamingMessageIdRef = useRef<string | null>(null)
+
   // Mobile UI state
   const mobileUI = useMobileUIState()
 
@@ -104,7 +108,7 @@ export default function Home() {
   })
 
   // Cross-device sync
-  const { handleSyncData } = useSyncData({ setRepos, activeBranchIdRef })
+  const { handleSyncData } = useSyncData({ setRepos, activeBranchIdRef, streamingMessageIdRef })
   useCrossDeviceSync({
     enabled: loaded,
     interval: 5000,
@@ -291,6 +295,7 @@ export default function Home() {
                   onBranchFromCommit={(hash) => setPendingStartCommit(hash)}
                   messagesLoading={messagesLoading}
                   isMobile={true}
+                  streamingMessageIdRef={streamingMessageIdRef}
                 />
               ) : (
                 <EmptyChatPanel hasRepos={repos.length > 0} />
@@ -321,6 +326,7 @@ export default function Home() {
               onCommitsDetected={() => setGitHistoryRefreshTrigger((n) => n + 1)}
               onBranchFromCommit={(hash) => setPendingStartCommit(hash)}
               messagesLoading={messagesLoading}
+              streamingMessageIdRef={streamingMessageIdRef}
             />
           ) : (
             <EmptyChatPanel hasRepos={repos.length > 0} />

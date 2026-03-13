@@ -42,6 +42,8 @@ interface ChatPanelProps {
   onBranchFromCommit?: (commitHash: string) => void
   messagesLoading?: boolean
   isMobile?: boolean
+  /** Ref to signal which message is actively streaming - used by sync to avoid overwriting */
+  streamingMessageIdRef?: React.MutableRefObject<string | null>
 }
 
 export function ChatPanel({
@@ -60,6 +62,7 @@ export function ChatPanel({
   onBranchFromCommit,
   messagesLoading = false,
   isMobile = false,
+  streamingMessageIdRef,
 }: ChatPanelProps) {
   // Refs
   const scrollRef = useRef<HTMLDivElement>(null)
@@ -85,6 +88,7 @@ export function ChatPanel({
     onAddMessage,
     onForceSave,
     onCommitsDetected,
+    streamingMessageIdRef,
   })
 
   const gitActions = useGitActions({
