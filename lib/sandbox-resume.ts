@@ -13,7 +13,9 @@ export async function ensureSandboxReady(
   previewUrlPattern?: string,
   anthropicApiKey?: string,
   anthropicAuthType?: string,
-  anthropicAuthToken?: string
+  anthropicAuthToken?: string,
+  // Database session ID - this is the source of truth since it persists across sandbox rebuilds
+  databaseSessionId?: string
 ): Promise<{
   sandbox: Awaited<ReturnType<InstanceType<typeof Daytona>["get"]>>
   wasResumed: boolean
@@ -23,15 +25,15 @@ export async function ensureSandboxReady(
   const daytona = new Daytona({ apiKey: daytonaApiKey })
   const sandbox = await daytona.get(sandboxId)
 
-  const repoPath = `/home/daytona/${repoName}`
-
   // Start sandbox if not running
   if (sandbox.state !== "started") {
     await sandbox.start(120)
   }
 
   // Read stored session ID for agent resumption
-  const resumeSessionId = await readPersistedSessionId(sandbox)
+  // Priority: database (persists across sandbox rebuilds) > file (may be lost on rebuild)
+  const fileSessionId = await readPersistedSessionId(sandbox)
+  const resumeSessionId = databaseSessionId || fileSessionId
 
   // For Claude Max, write credentials if needed
   if (anthropicAuthType === "claude-max" && anthropicAuthToken) {

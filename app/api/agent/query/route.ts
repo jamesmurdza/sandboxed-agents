@@ -109,7 +109,8 @@ export async function POST(req: Request) {
           previewUrlPattern || sandboxRecord.previewUrlPattern || undefined,
           anthropicApiKey,
           anthropicAuthType,
-          anthropicAuthToken
+          anthropicAuthToken,
+          sandboxRecord.sessionId || undefined // Pass database session ID for resumption
         )
 
         // Update last activity

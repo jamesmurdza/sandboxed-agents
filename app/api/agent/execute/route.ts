@@ -56,7 +56,8 @@ export async function POST(req: Request) {
       previewUrlPattern || sandboxRecord.previewUrlPattern || undefined,
       anthropicApiKey,
       anthropicAuthType,
-      anthropicAuthToken
+      anthropicAuthToken,
+      sandboxRecord.sessionId || undefined // Pass database session ID for resumption
     )
 
     // 5. Verify message exists before creating AgentExecution (prevents FK constraint violation)
