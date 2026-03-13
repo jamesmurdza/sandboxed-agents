@@ -228,9 +228,23 @@ export function ChatPanel({
       return
     }
 
-    // No messages, switch immediately
-    await performAgentSwitch(agent)
-  }, [branch.agent, branch.messages.length, performAgentSwitch])
+    // No messages, switch immediately - inline the logic to avoid initialization order issues
+    onUpdateBranch({ agent, model: defaultAgentModel[agent] })
+    try {
+      await fetch("/api/branches", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          branchId: branch.id,
+          agent,
+          model: defaultAgentModel[agent],
+          clearSession: true,
+        }),
+      })
+    } catch (err) {
+      console.error("Failed to update agent:", err)
+    }
+  }, [branch.id, branch.agent, branch.messages.length, onUpdateBranch])
 
   // Handle agent switch confirmation
   const handleAgentSwitchConfirm = useCallback(async (agent: Agent) => {
