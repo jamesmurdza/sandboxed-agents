@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState, useRef } from "react"
+import { useEffect, useState, useRef, useCallback } from "react"
 import { useSession, signOut } from "next-auth/react"
 import { useRouter } from "next/navigation"
 import { RepoSidebar } from "@/components/repo-sidebar"
@@ -92,6 +92,13 @@ export default function Home() {
   // Streaming state ref - signals when a message is actively being streamed
   // This is used to prevent sync from overwriting streaming content
   const streamingMessageIdRef = useRef<string | null>(null)
+
+  // Wrapper for selectBranch that also clears the unread flag
+  const handleSelectBranch = useCallback((branchId: string) => {
+    selectBranch(branchId)
+    // Clear the unread flag when viewing a branch
+    handleUpdateBranch(branchId, { unread: false })
+  }, [selectBranch, handleUpdateBranch])
 
   // Mobile UI state
   const mobileUI = useMobileUIState()
@@ -211,7 +218,7 @@ export default function Home() {
             userName={session?.user?.name || null}
             userLogin={session?.user?.githubLogin || null}
             onSelectRepo={selectRepo}
-            onSelectBranch={selectBranch}
+            onSelectBranch={handleSelectBranch}
             onRemoveRepo={handleRemoveRepo}
             onOpenSettings={() => setSettingsOpen(true)}
             onOpenAddRepo={() => setAddRepoOpen(true)}
@@ -229,7 +236,7 @@ export default function Home() {
             <BranchList
               repo={activeRepo}
               activeBranchId={activeBranchId}
-              onSelectBranch={selectBranch}
+              onSelectBranch={handleSelectBranch}
               onAddBranch={handleAddBranch}
               onRemoveBranch={(branchId, deleteRemote) => handleRemoveBranch(branchId, deleteRemote, activeBranchId ?? undefined)}
               onUpdateBranch={handleUpdateBranch}

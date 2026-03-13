@@ -26,6 +26,7 @@ export async function GET() {
             status: true,
             baseBranch: true,
             prUrl: true,
+            unread: true,
             sandbox: {
               select: {
                 sandboxId: true,
@@ -60,6 +61,7 @@ export async function GET() {
           status: b.status,
           baseBranch: b.baseBranch,
           prUrl: b.prUrl,
+          unread: b.unread,
           sandboxId: b.sandbox?.sandboxId || null,
           sandboxStatus: b.sandbox?.status || null,
           lastMessageId: b.messages[0]?.id || null,

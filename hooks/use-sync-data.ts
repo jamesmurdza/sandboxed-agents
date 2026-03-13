@@ -13,6 +13,7 @@ export interface SyncBranch {
   status: string
   baseBranch: string | null
   prUrl: string | null
+  unread: boolean
   sandboxId: string | null
   lastMessageId: string | null
 }
@@ -47,6 +48,7 @@ function syncBranchToBranch(syncBranch: SyncBranch): Branch {
     status: syncBranch.status as Branch["status"],
     baseBranch: syncBranch.baseBranch || "main",
     prUrl: syncBranch.prUrl || undefined,
+    unread: syncBranch.unread,
     sandboxId: syncBranch.sandboxId || undefined,
     messages: [],
   }
@@ -63,6 +65,7 @@ function mergeSyncBranchIntoExisting(
     ...existingBranch,
     status: syncBranch.status as Branch["status"],
     prUrl: syncBranch.prUrl || undefined,
+    unread: syncBranch.unread,
     sandboxId: syncBranch.sandboxId || undefined,
   }
 }
@@ -166,9 +169,17 @@ export function useSyncData({ setRepos, activeBranchIdRef, streamingMessageIdRef
 
             // Status change
             if (lastBranch.status !== syncBranch.status) {
+              // Check if agent finished (transitioned from running to idle/stopped/error)
+              // and this is NOT the active branch - mark as unread
+              const wasRunning = lastBranch.status === "running"
+              const isFinished = syncBranch.status === "idle" || syncBranch.status === "stopped" || syncBranch.status === "error"
+              const isNotActiveBranch = syncBranch.id !== activeBranchIdRef.current
+              const shouldMarkUnread = wasRunning && isFinished && isNotActiveBranch
+
               setRepos((prev) =>
                 updateBranchAcrossRepos(prev, syncBranch.id, {
                   status: syncBranch.status as Branch["status"],
+                  ...(shouldMarkUnread && { unread: true }),
                 })
               )
             }

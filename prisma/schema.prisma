@@ -110,6 +110,7 @@ model Branch {
   status      String  @default("idle") // "idle" | "running" | "creating" | "stopped" | "error"
   prUrl       String?
   draftPrompt String? @db.Text // Persisted draft input for chat continuity
+  unread      Boolean @default(false) // Whether the branch has unread activity (agent completed while not viewed)
 
   // Agent configuration
   agent String @default("claude-code") // "claude-code" | "opencode"
