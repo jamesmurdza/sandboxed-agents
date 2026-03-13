@@ -1,7 +1,6 @@
 import { prisma } from "@/lib/prisma"
 import { ensureSandboxReady } from "@/lib/sandbox-resume"
-import { getBackgroundAgentScript, getOutputFilePath } from "@/lib/background-agent-script"
-import { randomUUID } from "crypto"
+import { startBackgroundAgent } from "@/lib/agent-session"
 import {
   requireAuth,
   isAuthError,
@@ -41,17 +40,24 @@ export async function POST(req: Request) {
   if (isDaytonaKeyError(daytonaApiKey)) return daytonaApiKey
 
   // Decrypt user's Anthropic credentials
-  const { anthropicApiKey, anthropicAuthToken, anthropicAuthType } = decryptUserCredentials(
-    sandboxRecord.user.credentials
-  )
+  const { anthropicApiKey, anthropicAuthToken, anthropicAuthType } =
+    decryptUserCredentials(sandboxRecord.user.credentials)
 
   // Determine repo name from database or request
   const actualRepoName = repoName || sandboxRecord.branch?.repo?.name || "repo"
   const repoPath = `/home/daytona/${actualRepoName}`
 
   try {
+    console.log("[agent/execute] start", {
+      sandboxId,
+      messageId,
+      prompt,
+      repoName: actualRepoName,
+      dbSessionId: sandboxRecord.sessionId,
+    })
+
     // 4. Ensure sandbox is ready
-    const { sandbox, wasResumed, resumeSessionId } = await ensureSandboxReady(
+    const { sandbox, resumeSessionId, env } = await ensureSandboxReady(
       daytonaApiKey,
       sandboxId,
       actualRepoName,
@@ -59,17 +65,10 @@ export async function POST(req: Request) {
       anthropicApiKey,
       anthropicAuthType,
       anthropicAuthToken,
+      sandboxRecord.sessionId || undefined // Pass database session ID for resumption
     )
 
-    // Update context if it was recreated
-    if (wasResumed) {
-      // Context was recreated, but we don't need it for background execution
-    }
-
-    // 5. Generate unique execution ID
-    const executionId = randomUUID()
-
-    // 6. Verify message exists before creating AgentExecution (prevents FK constraint violation)
+    // 5. Verify message exists before creating AgentExecution (prevents FK constraint violation)
     const messageRecord = await prisma.message.findUnique({
       where: { id: messageId },
     })
@@ -77,15 +76,57 @@ export async function POST(req: Request) {
       return notFound("Message not found - it may not have been saved yet")
     }
 
-    // 7. Create AgentExecution record
+    console.log("[agent/execute] after ensureSandboxReady", {
+      sandboxId,
+      resumeSessionId,
+      envKeys: Object.keys(env || {}),
+    })
+
+    // 6. Start background agent via SDK
+    const { executionId, backgroundSessionId } = await startBackgroundAgent(
+      sandbox,
+      {
+        prompt,
+        repoPath,
+        previewUrlPattern:
+          previewUrlPattern || sandboxRecord.previewUrlPattern || undefined,
+        // sessionId: resumeSessionId helps the provider reuse conversation state.
+        // We intentionally do NOT reuse backgroundSessionId across executions,
+        // so each run gets a fresh background session bound to the resumed conversation.
+        sessionId: resumeSessionId,
+        env,
+      }
+    )
+
+    console.log("[agent/execute] started background agent", {
+      sandboxId,
+      executionId,
+      backgroundSessionId,
+    })
+
+    // 7. Create AgentExecution record with SDK's execution ID
     await prisma.agentExecution.create({
       data: {
         messageId,
         sandboxId,
+        // Use SDK's executionId as the unique DB identifier
         executionId,
         status: "running",
       },
     })
+
+    // Persist the background session ID on the sandbox so future runs can reuse it
+    if (sandboxRecord.sessionId !== backgroundSessionId) {
+      await prisma.sandbox.update({
+        where: { id: sandboxRecord.id },
+        data: { sessionId: backgroundSessionId },
+      })
+      console.log("[agent/execute] updated sandbox.sessionId", {
+        sandboxId,
+        oldSessionId: sandboxRecord.sessionId,
+        newSessionId: backgroundSessionId,
+      })
+    }
 
     // 8. Update sandbox and branch status
     await updateSandboxAndBranchStatus(
@@ -95,37 +136,7 @@ export async function POST(req: Request) {
       { lastActiveAt: new Date() }
     )
 
-    // 9. Upload background agent script
-    const scriptContent = getBackgroundAgentScript(executionId)
-    const scriptB64 = Buffer.from(scriptContent).toString("base64")
-    await sandbox.process.executeCommand(
-      `echo '${scriptB64}' | base64 -d > /tmp/bg_agent_${executionId}.py`
-    )
-
-    // 10. Build environment variables
-    const envVars: string[] = [
-      `REPO_PATH="${repoPath}"`,
-      `MESSAGE_ID="${messageId}"`,
-      `PROMPT="${prompt.replace(/"/g, '\\"').replace(/\n/g, '\\n')}"`,
-    ]
-
-    if (previewUrlPattern || sandboxRecord.previewUrlPattern) {
-      envVars.push(`PREVIEW_URL_PATTERN="${previewUrlPattern || sandboxRecord.previewUrlPattern}"`)
-    }
-    if (resumeSessionId) {
-      envVars.push(`RESUME_SESSION_ID="${resumeSessionId}"`)
-    }
-    if (anthropicAuthType !== "claude-max" && anthropicApiKey) {
-      envVars.push(`ANTHROPIC_API_KEY="${anthropicApiKey}"`)
-    }
-
-    // 11. Start background process using nohup
-    const envString = envVars.join(" ")
-    const command = `cd ${repoPath} && ${envString} nohup python3 /tmp/bg_agent_${executionId}.py > /tmp/agent_log_${executionId}.txt 2>&1 &`
-
-    await sandbox.process.executeCommand(command)
-
-    // 12. Reset auto-stop timer
+    // 9. Reset auto-stop timer
     try {
       await sandbox.refreshActivity()
     } catch {
@@ -134,11 +145,10 @@ export async function POST(req: Request) {
 
     return Response.json({
       success: true,
+      // Return the unique AgentExecution.executionId so polling can look it up.
       executionId,
       messageId,
-      outputFile: getOutputFilePath(executionId),
     })
-
   } catch (error: unknown) {
     // Update execution status to error if it was created
     try {

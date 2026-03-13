@@ -1,11 +1,12 @@
 import { Daytona } from "@daytonaio/sdk"
 import { prisma } from "@/lib/prisma"
-import { getOutputFilePath } from "@/lib/background-agent-script"
+import { pollBackgroundAgent } from "@/lib/agent-session"
 import {
   requireAuth,
   isAuthError,
   getDaytonaApiKey,
   isDaytonaKeyError,
+  decryptUserCredentials,
   badRequest,
   notFound,
   unauthorized,
@@ -23,17 +24,24 @@ export async function POST(req: Request) {
     return badRequest("Missing executionId or messageId")
   }
 
-  // 2. Find the execution record
+  // 2. Find the execution record with user credentials for env
   const execution = await prisma.agentExecution.findFirst({
-    where: executionId
-      ? { executionId }
-      : { messageId },
+    where: executionId ? { executionId } : { messageId },
     include: {
       message: {
         include: {
           branch: {
             include: {
-              sandbox: true,
+              sandbox: {
+                include: {
+                  user: {
+                    include: {
+                      credentials: true,
+                    },
+                  },
+                },
+              },
+              repo: true,
             },
           },
         },
@@ -42,6 +50,10 @@ export async function POST(req: Request) {
   })
 
   if (!execution) {
+    console.warn("[agent/status] execution not found", {
+      executionId,
+      messageId,
+    })
     return notFound("Execution not found")
   }
 
@@ -56,7 +68,7 @@ export async function POST(req: Request) {
   if (isDaytonaKeyError(daytonaApiKey)) return daytonaApiKey
 
   try {
-    // 5. Read output file from sandbox
+    // 5. Get sandbox instance
     const daytona = new Daytona({ apiKey: daytonaApiKey })
     const sandboxInstance = await daytona.get(execution.sandboxId)
 
@@ -81,34 +93,39 @@ export async function POST(req: Request) {
       }
     }
 
-    const outputFile = getOutputFilePath(execution.executionId)
-    const result = await sandboxInstance.process.executeCommand(
-      `cat "${outputFile}" 2>/dev/null || echo '{"status":"pending"}'`
+    // 6. Build poll options (SDK needs session config to reattach to background session)
+    const repoName = execution.message.branch.repo?.name || "repo"
+    const repoPath = `/home/daytona/${repoName}`
+    const previewUrlPattern = sandbox.previewUrlPattern || undefined
+
+    // Decrypt user credentials for env vars
+    const { anthropicApiKey } =
+      decryptUserCredentials(sandbox.user.credentials)
+    const env: Record<string, string> = {}
+    if (anthropicApiKey) env.ANTHROPIC_API_KEY = anthropicApiKey
+
+    // Poll via SDK helper with full options.
+    // For new executions, the long-lived background session ID is stored on the sandbox.
+    // For older executions, fall back to using execution.executionId directly.
+    const backgroundSessionId =
+      sandbox.sessionId || execution.executionId
+
+    console.log("[agent/status] polling", {
+      executionId: execution.executionId,
+      sandboxId: sandbox.id,
+      sandboxSessionId: sandbox.sessionId,
+      backgroundSessionId,
+    })
+
+    const outputData = await pollBackgroundAgent(
+      sandboxInstance,
+      backgroundSessionId,
+      { repoPath, previewUrlPattern, env }
     )
 
-    let outputData: {
-      status: string
-      content: string
-      toolCalls: Array<{ tool: string; summary: string }>
-      contentBlocks: Array<{ type: string; text?: string; toolCalls?: Array<{ tool: string; summary: string }> }>
-      error: string | null
-      sessionId: string | null
-    }
-
-    try {
-      outputData = JSON.parse(result.result.trim())
-    } catch {
-      // File doesn't exist yet or invalid JSON
-      return Response.json({
-        status: "running",
-        content: "",
-        toolCalls: [],
-        error: null,
-      })
-    }
-
-    // 6. Only update DB on completion/error (not on every poll)
-    const isCompleted = outputData.status === "completed" || outputData.status === "error"
+    // 7. Only update DB on completion/error (not on every poll)
+    const isCompleted =
+      outputData.status === "completed" || outputData.status === "error"
 
     if (isCompleted) {
       // Batch all updates in a single transaction
@@ -118,12 +135,14 @@ export async function POST(req: Request) {
           where: { id: execution.messageId },
           data: {
             content: outputData.content || "",
-            toolCalls: outputData.toolCalls && outputData.toolCalls.length > 0
-              ? outputData.toolCalls
-              : undefined,
-            contentBlocks: outputData.contentBlocks && outputData.contentBlocks.length > 0
-              ? outputData.contentBlocks
-              : undefined,
+            toolCalls:
+              outputData.toolCalls && outputData.toolCalls.length > 0
+                ? outputData.toolCalls
+                : undefined,
+            contentBlocks:
+              outputData.contentBlocks && outputData.contentBlocks.length > 0
+                ? JSON.parse(JSON.stringify(outputData.contentBlocks))
+                : undefined,
           },
         }),
         // Update execution status
@@ -139,7 +158,6 @@ export async function POST(req: Request) {
           where: { id: sandbox.id },
           data: {
             status: "idle",
-            ...(outputData.sessionId && { sessionId: outputData.sessionId }),
           },
         }),
         // Update branch status
@@ -165,7 +183,6 @@ export async function POST(req: Request) {
       error: outputData.error,
       sessionId: outputData.sessionId,
     })
-
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : "Unknown error"
     return Response.json({
