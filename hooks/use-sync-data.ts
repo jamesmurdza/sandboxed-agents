@@ -209,18 +209,32 @@ export function useSyncData({ setRepos, activeBranchIdRef }: UseSyncDataOptions)
                           ...r,
                           branches: r.branches.map((b) => {
                             if (b.id !== syncBranch.id) return b
+
+                            // Convert API messages to local format
+                            const apiMessages = msgData.messages.map((m: DbMessage) => ({
+                              id: m.id,
+                              role: m.role as "user" | "assistant",
+                              content: m.content,
+                              toolCalls: m.toolCalls as import("@/lib/types").Message["toolCalls"],
+                              contentBlocks: m.contentBlocks as import("@/lib/types").Message["contentBlocks"],
+                              timestamp: m.timestamp || "",
+                              commitHash: m.commitHash || undefined,
+                              commitMessage: m.commitMessage || undefined,
+                            }))
+
+                            // Create a set of API message IDs for quick lookup
+                            const apiMessageIds = new Set(apiMessages.map((m: { id: string }) => m.id))
+
+                            // Find local messages that aren't in the API response yet (optimistic updates)
+                            // These are likely still being saved to the database
+                            const optimisticMessages = b.messages.filter(
+                              (m) => !apiMessageIds.has(m.id)
+                            )
+
+                            // Merge: API messages first (they're authoritative), then optimistic messages
                             return {
                               ...b,
-                              messages: msgData.messages.map((m: DbMessage) => ({
-                                id: m.id,
-                                role: m.role as "user" | "assistant",
-                                content: m.content,
-                                toolCalls: m.toolCalls as import("@/lib/types").Message["toolCalls"],
-                                contentBlocks: m.contentBlocks as import("@/lib/types").Message["contentBlocks"],
-                                timestamp: m.timestamp || "",
-                                commitHash: m.commitHash || undefined,
-                                commitMessage: m.commitMessage || undefined,
-                              })),
+                              messages: [...apiMessages, ...optimisticMessages],
                             }
                           }),
                         }))
