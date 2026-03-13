@@ -1,19 +1,24 @@
-import { getServerSession } from "next-auth"
-import { authOptions } from "@/lib/auth"
 import { prisma } from "@/lib/prisma"
 import { ensureSandboxStarted } from "@/lib/sandbox-resume"
+import {
+  requireAuth,
+  isAuthError,
+  badRequest,
+  notFound,
+  getDaytonaApiKey,
+  isDaytonaKeyError,
+  internalError,
+} from "@/lib/api-helpers"
 
 export async function POST(req: Request) {
-  const session = await getServerSession(authOptions)
-  if (!session?.user?.id) {
-    return Response.json({ error: "Unauthorized" }, { status: 401 })
-  }
+  const auth = await requireAuth()
+  if (isAuthError(auth)) return auth
 
   const body = await req.json()
   const { sandboxId } = body
 
   if (!sandboxId) {
-    return Response.json({ error: "Missing sandbox ID" }, { status: 400 })
+    return badRequest("Missing sandbox ID")
   }
 
   // Verify ownership
@@ -21,21 +26,18 @@ export async function POST(req: Request) {
     where: { sandboxId },
   })
 
-  if (!sandboxRecord || sandboxRecord.userId !== session.user.id) {
-    return Response.json({ error: "Sandbox not found" }, { status: 404 })
+  if (!sandboxRecord || sandboxRecord.userId !== auth.userId) {
+    return notFound("Sandbox not found")
   }
 
-  const daytonaApiKey = process.env.DAYTONA_API_KEY
-  if (!daytonaApiKey) {
-    return Response.json({ error: "Server configuration error" }, { status: 500 })
-  }
+  const daytonaApiKey = getDaytonaApiKey()
+  if (isDaytonaKeyError(daytonaApiKey)) return daytonaApiKey
 
   try {
     const sandbox = await ensureSandboxStarted(daytonaApiKey, sandboxId)
     const sshAccess = await sandbox.createSshAccess(60)
     return Response.json({ sshCommand: sshAccess.sshCommand })
   } catch (error: unknown) {
-    const message = error instanceof Error ? error.message : "Unknown error"
-    return Response.json({ error: message }, { status: 500 })
+    return internalError(error)
   }
 }

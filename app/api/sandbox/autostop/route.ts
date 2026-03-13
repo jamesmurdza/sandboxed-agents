@@ -1,30 +1,31 @@
 import { Daytona } from "@daytonaio/sdk"
-import { getServerSession } from "next-auth"
-import { authOptions } from "@/lib/auth"
 import { prisma } from "@/lib/prisma"
+import {
+  requireAuth,
+  isAuthError,
+  badRequest,
+  getDaytonaApiKey,
+  isDaytonaKeyError,
+} from "@/lib/api-helpers"
 
 export async function POST(req: Request) {
-  const session = await getServerSession(authOptions)
-  if (!session?.user?.id) {
-    return Response.json({ error: "Unauthorized" }, { status: 401 })
-  }
+  const auth = await requireAuth()
+  if (isAuthError(auth)) return auth
 
   const body = await req.json()
   const { interval } = body
 
   // Validate interval (5-20 minutes)
   if (typeof interval !== "number" || interval < 5 || interval > 20) {
-    return Response.json({ error: "Invalid interval. Must be between 5 and 20 minutes." }, { status: 400 })
+    return badRequest("Invalid interval. Must be between 5 and 20 minutes.")
   }
 
-  const daytonaApiKey = process.env.DAYTONA_API_KEY
-  if (!daytonaApiKey) {
-    return Response.json({ error: "Server configuration error: Daytona API key not set" }, { status: 500 })
-  }
+  const daytonaApiKey = getDaytonaApiKey()
+  if (isDaytonaKeyError(daytonaApiKey)) return daytonaApiKey
 
   // Get user's sandboxes (limit to prevent OOM with many sandboxes)
   const sandboxes = await prisma.sandbox.findMany({
-    where: { userId: session.user.id },
+    where: { userId: auth.userId },
     select: { sandboxId: true },
     take: 100,
     orderBy: { lastActiveAt: "desc" },

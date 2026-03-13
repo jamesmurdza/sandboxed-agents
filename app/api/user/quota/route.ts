@@ -1,13 +1,10 @@
-import { getServerSession } from "next-auth"
-import { authOptions } from "@/lib/auth"
 import { getQuota } from "@/lib/quota"
+import { requireAuth, isAuthError } from "@/lib/api-helpers"
 
 export async function GET() {
-  const session = await getServerSession(authOptions)
-  if (!session?.user?.id) {
-    return Response.json({ error: "Unauthorized" }, { status: 401 })
-  }
+  const auth = await requireAuth()
+  if (isAuthError(auth)) return auth
 
-  const quota = await getQuota(session.user.id)
+  const quota = await getQuota(auth.userId)
   return Response.json(quota)
 }

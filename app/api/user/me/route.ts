@@ -1,20 +1,17 @@
-import { getServerSession } from "next-auth"
-import { authOptions } from "@/lib/auth"
 import { prisma } from "@/lib/prisma"
 import { getQuota } from "@/lib/quota"
+import { requireAuth, isAuthError, notFound, internalError } from "@/lib/api-helpers"
 
 // Prevent Next.js from caching this route - always fetch fresh data
 export const dynamic = "force-dynamic"
 
 export async function GET() {
-  try {
-    const session = await getServerSession(authOptions)
-    if (!session?.user?.id) {
-      return Response.json({ error: "Unauthorized" }, { status: 401 })
-    }
+  const auth = await requireAuth()
+  if (isAuthError(auth)) return auth
 
+  try {
     const user = await prisma.user.findUnique({
-      where: { id: session.user.id },
+      where: { id: auth.userId },
       include: {
         credentials: {
           select: {
@@ -50,10 +47,10 @@ export async function GET() {
     })
 
     if (!user) {
-      return Response.json({ error: "User not found" }, { status: 404 })
+      return notFound("User not found")
     }
 
-    const quota = await getQuota(session.user.id)
+    const quota = await getQuota(auth.userId)
 
     // Transform credentials to just show existence, not values
     const credentials = user.credentials
@@ -79,6 +76,6 @@ export async function GET() {
     })
   } catch (error) {
     console.error("GET /api/user/me error:", error)
-    return Response.json({ error: "Internal server error" }, { status: 500 })
+    return internalError(error)
   }
 }

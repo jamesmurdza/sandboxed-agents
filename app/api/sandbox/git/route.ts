@@ -1,8 +1,15 @@
-import { getServerSession } from "next-auth"
-import { authOptions } from "@/lib/auth"
 import { prisma } from "@/lib/prisma"
 import { ensureSandboxStarted } from "@/lib/sandbox-resume"
 import type { Sandbox } from "@daytonaio/sdk"
+import {
+  requireAuth,
+  isAuthError,
+  badRequest,
+  notFound,
+  getDaytonaApiKey,
+  isDaytonaKeyError,
+  internalError,
+} from "@/lib/api-helpers"
 
 export const maxDuration = 60
 
@@ -24,16 +31,14 @@ async function ensureCorrectBranch(
 }
 
 export async function POST(req: Request) {
-  const session = await getServerSession(authOptions)
-  if (!session?.user?.id) {
-    return Response.json({ error: "Unauthorized" }, { status: 401 })
-  }
+  const auth = await requireAuth()
+  if (isAuthError(auth)) return auth
 
   const body = await req.json()
   const { sandboxId, repoPath, action, targetBranch, currentBranch, repoOwner, repoApiName, tagName, branchName } = body
 
   if (!sandboxId || !repoPath || !action) {
-    return Response.json({ error: "Missing required fields" }, { status: 400 })
+    return badRequest("Missing required fields")
   }
 
   // Verify ownership
@@ -41,18 +46,16 @@ export async function POST(req: Request) {
     where: { sandboxId },
   })
 
-  if (!sandboxRecord || sandboxRecord.userId !== session.user.id) {
-    return Response.json({ error: "Sandbox not found" }, { status: 404 })
+  if (!sandboxRecord || sandboxRecord.userId !== auth.userId) {
+    return notFound("Sandbox not found")
   }
 
-  const daytonaApiKey = process.env.DAYTONA_API_KEY
-  if (!daytonaApiKey) {
-    return Response.json({ error: "Server configuration error" }, { status: 500 })
-  }
+  const daytonaApiKey = getDaytonaApiKey()
+  if (isDaytonaKeyError(daytonaApiKey)) return daytonaApiKey
 
   // Get GitHub token from NextAuth
   const account = await prisma.account.findFirst({
-    where: { userId: session.user.id, provider: "github" },
+    where: { userId: auth.userId, provider: "github" },
   })
   const githubToken = account?.access_token
 
@@ -98,15 +101,15 @@ export async function POST(req: Request) {
 
       case "auto-commit-push": {
         if (!githubToken) {
-          return Response.json({ error: "GitHub token not found" }, { status: 400 })
+          return badRequest("GitHub token not found")
         }
         if (!branchName) {
-          return Response.json({ error: "Branch name required for push" }, { status: 400 })
+          return badRequest("Branch name required for push")
         }
         // Ensure we're on the correct branch before any operations
         const branchError = await ensureCorrectBranch(sandbox, repoPath, branchName)
         if (branchError) {
-          return Response.json({ error: branchError }, { status: 400 })
+          return badRequest(branchError)
         }
         // Check for uncommitted changes and commit them if any
         let committed = false
@@ -125,7 +128,7 @@ export async function POST(req: Request) {
         // Double-check we're still on the correct branch before pushing
         const verifyStatus = await sandbox.git.status(repoPath)
         if (verifyStatus.currentBranch !== branchName) {
-          return Response.json({ error: `Branch changed during operation: expected ${branchName} but on ${verifyStatus.currentBranch}` }, { status: 400 })
+          return badRequest(`Branch changed during operation: expected ${branchName} but on ${verifyStatus.currentBranch}`)
         }
         // Always push — covers agent-made commits AND new branches with no upstream.
         await sandbox.git.push(repoPath, "x-access-token", githubToken)
@@ -134,20 +137,20 @@ export async function POST(req: Request) {
 
       case "push": {
         if (!githubToken) {
-          return Response.json({ error: "GitHub token not found" }, { status: 400 })
+          return badRequest("GitHub token not found")
         }
         if (!branchName) {
-          return Response.json({ error: "Branch name required for push" }, { status: 400 })
+          return badRequest("Branch name required for push")
         }
         // Ensure we're on the correct branch before pushing
         const pushBranchError = await ensureCorrectBranch(sandbox, repoPath, branchName)
         if (pushBranchError) {
-          return Response.json({ error: pushBranchError }, { status: 400 })
+          return badRequest(pushBranchError)
         }
         // Double-check before push
         const pushVerifyStatus = await sandbox.git.status(repoPath)
         if (pushVerifyStatus.currentBranch !== branchName) {
-          return Response.json({ error: `Branch mismatch: expected ${branchName} but on ${pushVerifyStatus.currentBranch}` }, { status: 400 })
+          return badRequest(`Branch mismatch: expected ${branchName} but on ${pushVerifyStatus.currentBranch}`)
         }
         await sandbox.git.push(repoPath, "x-access-token", githubToken)
         return Response.json({ success: true })
@@ -155,7 +158,7 @@ export async function POST(req: Request) {
 
       case "pull": {
         if (!githubToken) {
-          return Response.json({ error: "GitHub token not found" }, { status: 400 })
+          return badRequest("GitHub token not found")
         }
         await sandbox.git.pull(repoPath, "x-access-token", githubToken)
         return Response.json({ success: true })
@@ -206,7 +209,7 @@ export async function POST(req: Request) {
 
       case "merge": {
         if (!githubToken || !targetBranch || !currentBranch) {
-          return Response.json({ error: "Missing required fields for merge" }, { status: 400 })
+          return badRequest("Missing required fields for merge")
         }
         // Use SDK to checkout target branch (safer than git command)
         try {
@@ -217,7 +220,7 @@ export async function POST(req: Request) {
         // Verify we're on target branch
         const mergeCheckStatus = await sandbox.git.status(repoPath)
         if (mergeCheckStatus.currentBranch !== targetBranch) {
-          return Response.json({ error: `Branch mismatch: expected ${targetBranch} but on ${mergeCheckStatus.currentBranch}` }, { status: 400 })
+          return badRequest(`Branch mismatch: expected ${targetBranch} but on ${mergeCheckStatus.currentBranch}`)
         }
         // Pull latest on target via Daytona SDK
         try {
@@ -238,7 +241,7 @@ export async function POST(req: Request) {
         // Double-check we're on target branch before pushing
         const mergeVerifyStatus = await sandbox.git.status(repoPath)
         if (mergeVerifyStatus.currentBranch !== targetBranch) {
-          return Response.json({ error: `Branch changed during merge: expected ${targetBranch} but on ${mergeVerifyStatus.currentBranch}` }, { status: 400 })
+          return badRequest(`Branch changed during merge: expected ${targetBranch} but on ${mergeVerifyStatus.currentBranch}`)
         }
         // Push the merged target
         await sandbox.git.push(repoPath, "x-access-token", githubToken)
@@ -249,7 +252,7 @@ export async function POST(req: Request) {
 
       case "rebase": {
         if (!githubToken || !targetBranch || !currentBranch || !repoOwner || !repoApiName) {
-          return Response.json({ error: "Missing required fields for rebase" }, { status: 400 })
+          return badRequest("Missing required fields for rebase")
         }
         // Checkout target branch, pull latest, come back, rebase
         const coTarget2 = await sandbox.process.executeCommand(
@@ -307,7 +310,7 @@ export async function POST(req: Request) {
 
       case "tag": {
         if (!githubToken || !tagName || !repoOwner || !repoApiName) {
-          return Response.json({ error: "Missing required fields for tag" }, { status: 400 })
+          return badRequest("Missing required fields for tag")
         }
         // Create local tag
         const tagResult = await sandbox.process.executeCommand(
@@ -356,7 +359,7 @@ export async function POST(req: Request) {
 
       case "delete-remote-branch": {
         if (!currentBranch || !githubToken || !repoOwner || !repoApiName) {
-          return Response.json({ error: "Missing required fields for delete-remote-branch" }, { status: 400 })
+          return badRequest("Missing required fields for delete-remote-branch")
         }
         // Delete remote branch via GitHub API
         const deleteRes = await fetch(
@@ -379,12 +382,12 @@ export async function POST(req: Request) {
       case "rename-branch": {
         const newName = body.newBranchName
         if (!currentBranch || !newName) {
-          return Response.json({ error: "Missing required fields for rename" }, { status: 400 })
+          return badRequest("Missing required fields for rename")
         }
         // First ensure we're on the branch we're renaming
         const renameBranchError = await ensureCorrectBranch(sandbox, repoPath, currentBranch)
         if (renameBranchError) {
-          return Response.json({ error: renameBranchError }, { status: 400 })
+          return badRequest(renameBranchError)
         }
         const renameResult = await sandbox.process.executeCommand(
           `cd ${repoPath} && git branch -m ${currentBranch} ${newName} 2>&1`
@@ -397,7 +400,7 @@ export async function POST(req: Request) {
           // Verify we're on the newly renamed branch before pushing
           const renameVerifyStatus = await sandbox.git.status(repoPath)
           if (renameVerifyStatus.currentBranch !== newName) {
-            return Response.json({ error: `Branch mismatch after rename: expected ${newName} but on ${renameVerifyStatus.currentBranch}` }, { status: 400 })
+            return badRequest(`Branch mismatch after rename: expected ${newName} but on ${renameVerifyStatus.currentBranch}`)
           }
           await sandbox.git.push(repoPath, "x-access-token", githubToken)
           // Delete old remote branch (best effort)
@@ -433,10 +436,9 @@ export async function POST(req: Request) {
       }
 
       default:
-        return Response.json({ error: `Unknown action: ${action}` }, { status: 400 })
+        return badRequest(`Unknown action: ${action}`)
     }
   } catch (error: unknown) {
-    const message = error instanceof Error ? error.message : "Unknown error"
-    return Response.json({ error: message }, { status: 500 })
+    return internalError(error)
   }
 }

@@ -1,19 +1,16 @@
-import { getServerSession } from "next-auth"
-import { authOptions } from "@/lib/auth"
 import { prisma } from "@/lib/prisma"
+import { requireAuth, isAuthError, badRequest, notFound } from "@/lib/api-helpers"
 
 // POST endpoint for saving draft prompts (needed for sendBeacon on page unload)
 export async function POST(req: Request) {
-  const session = await getServerSession(authOptions)
-  if (!session?.user?.id) {
-    return Response.json({ error: "Unauthorized" }, { status: 401 })
-  }
+  const auth = await requireAuth()
+  if (isAuthError(auth)) return auth
 
   const body = await req.json()
   const { branchId, draftPrompt } = body
 
   if (!branchId) {
-    return Response.json({ error: "Missing branch ID" }, { status: 400 })
+    return badRequest("Missing branch ID")
   }
 
   // Verify ownership
@@ -22,8 +19,8 @@ export async function POST(req: Request) {
     include: { repo: true },
   })
 
-  if (!branch || branch.repo.userId !== session.user.id) {
-    return Response.json({ error: "Branch not found" }, { status: 404 })
+  if (!branch || branch.repo.userId !== auth.userId) {
+    return notFound("Branch not found")
   }
 
   await prisma.branch.update({

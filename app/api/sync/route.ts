@@ -1,21 +1,17 @@
-import { NextResponse } from "next/server"
-import { getServerSession } from "next-auth"
-import { authOptions } from "@/lib/auth"
 import { prisma } from "@/lib/prisma"
+import { requireAuth, isAuthError, internalError } from "@/lib/api-helpers"
 
 // Lightweight sync endpoint for cross-device state synchronization
 // Returns all repos with branch statuses, last message info, etc.
 export async function GET() {
-  const session = await getServerSession(authOptions)
-  if (!session?.user?.id) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-  }
+  const auth = await requireAuth()
+  if (isAuthError(auth)) return auth
 
   try {
     // Get all repos for user with branch info
     const repos = await prisma.repo.findMany({
       where: {
-        userId: session.user.id,
+        userId: auth.userId,
       },
       select: {
         id: true,
@@ -72,9 +68,9 @@ export async function GET() {
       })),
     }
 
-    return NextResponse.json(syncData)
+    return Response.json(syncData)
   } catch (error) {
     console.error("Sync error:", error)
-    return NextResponse.json({ error: "Sync failed" }, { status: 500 })
+    return internalError(error)
   }
 }
