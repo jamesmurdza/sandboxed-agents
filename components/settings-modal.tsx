@@ -1,10 +1,12 @@
 "use client"
 
 import { cn } from "@/lib/utils"
-import { X, Terminal, Copy, Check, Loader2, Clock } from "lucide-react"
+import { X, Terminal, Copy, Check, Loader2, Clock, Bot, Server, Key } from "lucide-react"
 import { useState, useEffect } from "react"
 import { Input } from "@/components/ui/input"
 import type { AnthropicAuthType } from "@/lib/types"
+
+type SettingsTab = "agents" | "sandboxes"
 
 interface SettingsModalProps {
   open: boolean
@@ -13,17 +15,30 @@ interface SettingsModalProps {
     anthropicAuthType: string
     hasAnthropicApiKey: boolean
     hasAnthropicAuthToken: boolean
+    hasOpenaiApiKey: boolean
+    hasOpenrouterApiKey: boolean
     sandboxAutoStopInterval?: number
   } | null
   onCredentialsUpdate: () => void
 }
 
 export function SettingsModal({ open, onClose, credentials, onCredentialsUpdate }: SettingsModalProps) {
+  const [activeTab, setActiveTab] = useState<SettingsTab>("agents")
+
+  // Anthropic auth state
   const [anthropicApiKey, setAnthropicApiKey] = useState("")
   const [anthropicAuthType, setAnthropicAuthType] = useState<AnthropicAuthType>("api-key")
   const [anthropicAuthToken, setAnthropicAuthToken] = useState("")
+
+  // Other API keys
+  const [openaiApiKey, setOpenaiApiKey] = useState("")
+  const [openrouterApiKey, setOpenrouterApiKey] = useState("")
+
+  // Sandbox settings
   const [sandboxAutoStopInterval, setSandboxAutoStopInterval] = useState(5)
   const [initialAutoStopInterval, setInitialAutoStopInterval] = useState(5)
+
+  // UI state
   const [copied, setCopied] = useState(false)
   const [isSaving, setIsSaving] = useState(false)
   const [saveStatus, setSaveStatus] = useState<{ message: string; isError: boolean } | null>(null)
@@ -35,6 +50,8 @@ export function SettingsModal({ open, onClose, credentials, onCredentialsUpdate 
       setAnthropicAuthType((credentials?.anthropicAuthType as AnthropicAuthType) ?? "api-key")
       setAnthropicApiKey("")
       setAnthropicAuthToken("")
+      setOpenaiApiKey("")
+      setOpenrouterApiKey("")
       const interval = credentials?.sandboxAutoStopInterval ?? 5
       setSandboxAutoStopInterval(interval)
       setInitialAutoStopInterval(interval)
@@ -47,14 +64,19 @@ export function SettingsModal({ open, onClose, credentials, onCredentialsUpdate 
   async function handleSave() {
     const newApiKey = anthropicApiKey.trim()
     const newAuthToken = anthropicAuthToken.trim()
+    const newOpenaiKey = openaiApiKey.trim()
+    const newOpenrouterKey = openrouterApiKey.trim()
     const autoStopChanged = sandboxAutoStopInterval !== initialAutoStopInterval
 
-    // Check if there's anything to save
-    const hasCredentialChanges =
-      (anthropicAuthType === "api-key" && newApiKey) ||
-      (anthropicAuthType === "claude-max" && newAuthToken)
+    // Check if there's anything to save - only send non-empty values
+    const hasAnyChanges =
+      newApiKey ||
+      newAuthToken ||
+      newOpenaiKey ||
+      newOpenrouterKey ||
+      autoStopChanged
 
-    if (!hasCredentialChanges && !autoStopChanged) {
+    if (!hasAnyChanges) {
       onClose()
       return
     }
@@ -63,15 +85,32 @@ export function SettingsModal({ open, onClose, credentials, onCredentialsUpdate 
     setSaveStatus(null)
 
     try {
+      // Build payload with only non-empty values to avoid overwriting existing keys
+      const payload: Record<string, unknown> = {
+        anthropicAuthType,
+      }
+
+      // Only include credentials that have been entered (non-empty)
+      if (newApiKey) {
+        payload.anthropicApiKey = newApiKey
+      }
+      if (newAuthToken) {
+        payload.anthropicAuthToken = newAuthToken
+      }
+      if (newOpenaiKey) {
+        payload.openaiApiKey = newOpenaiKey
+      }
+      if (newOpenrouterKey) {
+        payload.openrouterApiKey = newOpenrouterKey
+      }
+      if (autoStopChanged) {
+        payload.sandboxAutoStopInterval = sandboxAutoStopInterval
+      }
+
       const response = await fetch("/api/user/credentials", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          anthropicAuthType,
-          anthropicApiKey: anthropicAuthType === "api-key" ? newApiKey : undefined,
-          anthropicAuthToken: anthropicAuthType === "claude-max" ? newAuthToken : undefined,
-          sandboxAutoStopInterval,
-        }),
+        body: JSON.stringify(payload),
       })
 
       const data = await response.json()
@@ -139,103 +178,187 @@ export function SettingsModal({ open, onClose, credentials, onCredentialsUpdate 
           </button>
         </div>
 
-        {/* Anthropic Credentials */}
+        {/* Tab Navigation */}
+        <div className="flex border-b border-border px-4">
+          <button
+            onClick={() => setActiveTab("agents")}
+            className={cn(
+              "flex items-center gap-2 px-3 py-2.5 text-xs font-medium transition-colors cursor-pointer border-b-2 -mb-px",
+              activeTab === "agents"
+                ? "border-primary text-foreground"
+                : "border-transparent text-muted-foreground hover:text-foreground"
+            )}
+          >
+            <Bot className="h-3.5 w-3.5" />
+            Agents
+          </button>
+          <button
+            onClick={() => setActiveTab("sandboxes")}
+            className={cn(
+              "flex items-center gap-2 px-3 py-2.5 text-xs font-medium transition-colors cursor-pointer border-b-2 -mb-px",
+              activeTab === "sandboxes"
+                ? "border-primary text-foreground"
+                : "border-transparent text-muted-foreground hover:text-foreground"
+            )}
+          >
+            <Server className="h-3.5 w-3.5" />
+            Sandboxes
+          </button>
+        </div>
+
+        {/* Tab Content */}
         <div className="flex flex-col gap-4 px-4 sm:px-5 py-4 overflow-y-auto">
-          {/* Anthropic Auth */}
-          <div className="flex flex-col gap-1.5">
-            <div className="flex items-center gap-2">
-              <Terminal className="h-3.5 w-3.5 text-muted-foreground" />
-              <label className="text-xs font-medium text-foreground">Anthropic Authentication</label>
-            </div>
-            <div className="flex rounded-md border border-border bg-secondary p-0.5">
-              <button
-                type="button"
-                onClick={() => setAnthropicAuthType("api-key")}
-                className={cn(
-                  "flex-1 rounded px-3 py-1 text-xs font-medium transition-colors cursor-pointer",
-                  anthropicAuthType === "api-key"
-                    ? "bg-background text-foreground shadow-sm"
-                    : "text-muted-foreground hover:text-foreground"
+          {activeTab === "agents" && (
+            <>
+              {/* Anthropic Auth */}
+              <div className="flex flex-col gap-1.5">
+                <div className="flex items-center gap-2">
+                  <Terminal className="h-3.5 w-3.5 text-muted-foreground" />
+                  <label className="text-xs font-medium text-foreground">Anthropic Authentication</label>
+                </div>
+                <div className="flex rounded-md border border-border bg-secondary p-0.5">
+                  <button
+                    type="button"
+                    onClick={() => setAnthropicAuthType("api-key")}
+                    className={cn(
+                      "flex-1 rounded px-3 py-1 text-xs font-medium transition-colors cursor-pointer",
+                      anthropicAuthType === "api-key"
+                        ? "bg-background text-foreground shadow-sm"
+                        : "text-muted-foreground hover:text-foreground"
+                    )}
+                  >
+                    API Key
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setAnthropicAuthType("claude-max")}
+                    className={cn(
+                      "flex-1 rounded px-3 py-1 text-xs font-medium transition-colors cursor-pointer",
+                      anthropicAuthType === "claude-max"
+                        ? "bg-background text-foreground shadow-sm"
+                        : "text-muted-foreground hover:text-foreground"
+                    )}
+                  >
+                    Subscription
+                  </button>
+                </div>
+                {anthropicAuthType === "api-key" ? (
+                  <>
+                    <Input
+                      type="password"
+                      placeholder={credentials?.hasAnthropicApiKey ? "••••••••••••••••" : "sk-ant-..."}
+                      value={anthropicApiKey}
+                      onChange={(e) => setAnthropicApiKey(e.target.value)}
+                      className="h-9 bg-secondary border-border text-xs font-mono placeholder:text-muted-foreground/40"
+                    />
+                    <p className="text-[11px] text-muted-foreground">
+                      Used by Claude Code agent inside sandboxes
+                      {credentials?.hasAnthropicApiKey && (
+                        <span className="text-green-500 ml-1">• Key saved</span>
+                      )}
+                    </p>
+                  </>
+                ) : (
+                  <>
+                    <textarea
+                      placeholder={credentials?.hasAnthropicAuthToken ? "••••••••••••••••" : '{"claudeAiOauth":{"token_type":"bearer",...}}'}
+                      value={anthropicAuthToken}
+                      onChange={(e) => setAnthropicAuthToken(e.target.value)}
+                      rows={3}
+                      className="w-full rounded-md bg-secondary border border-border px-3 py-2 text-xs font-mono placeholder:text-muted-foreground/40 resize-none focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                    />
+                    <p className="text-[11px] text-muted-foreground">
+                      Paste the output of:{" "}
+                      <code
+                        className="text-[10px] cursor-pointer"
+                        onClick={() => {
+                          navigator.clipboard.writeText('security find-generic-password -s "Claude Code-credentials" -w')
+                          setCopied(true)
+                          setTimeout(() => setCopied(false), 1500)
+                        }}
+                      >
+                        {copied
+                          ? <Check className="inline h-2.5 w-2.5 text-green-500 mr-1 align-middle" />
+                          : <Copy className="inline h-2.5 w-2.5 text-muted-foreground/60 mr-1 align-middle" />}
+                        security find-generic-password -s &quot;Claude Code-credentials&quot; -w
+                      </code>
+                      {credentials?.hasAnthropicAuthToken && (
+                        <span className="text-green-500 ml-1">• Token saved</span>
+                      )}
+                    </p>
+                  </>
                 )}
-              >
-                API Key
-              </button>
-              <button
-                type="button"
-                onClick={() => setAnthropicAuthType("claude-max")}
-                className={cn(
-                  "flex-1 rounded px-3 py-1 text-xs font-medium transition-colors cursor-pointer",
-                  anthropicAuthType === "claude-max"
-                    ? "bg-background text-foreground shadow-sm"
-                    : "text-muted-foreground hover:text-foreground"
-                )}
-              >
-                Subscription
-              </button>
-            </div>
-            {anthropicAuthType === "api-key" ? (
-              <>
+              </div>
+
+              {/* OpenAI API Key */}
+              <div className="flex flex-col gap-1.5 pt-2 border-t border-border">
+                <div className="flex items-center gap-2">
+                  <Key className="h-3.5 w-3.5 text-muted-foreground" />
+                  <label className="text-xs font-medium text-foreground">OpenAI API Key</label>
+                </div>
                 <Input
                   type="password"
-                  placeholder="sk-ant-..."
-                  value={anthropicApiKey}
-                  onChange={(e) => setAnthropicApiKey(e.target.value)}
+                  placeholder={credentials?.hasOpenaiApiKey ? "••••••••••••••••" : "sk-..."}
+                  value={openaiApiKey}
+                  onChange={(e) => setOpenaiApiKey(e.target.value)}
                   className="h-9 bg-secondary border-border text-xs font-mono placeholder:text-muted-foreground/40"
                 />
                 <p className="text-[11px] text-muted-foreground">
-                  Used by Claude Code agent inside sandboxes
+                  Used by OpenCode agent for GPT-4o models
+                  {credentials?.hasOpenaiApiKey && (
+                    <span className="text-green-500 ml-1">• Key saved</span>
+                  )}
                 </p>
-              </>
-            ) : (
-              <>
-                <textarea
-                  placeholder='{"claudeAiOauth":{"token_type":"bearer",...}}'
-                  value={anthropicAuthToken}
-                  onChange={(e) => setAnthropicAuthToken(e.target.value)}
-                  rows={3}
-                  className="w-full rounded-md bg-secondary border border-border px-3 py-2 text-xs font-mono placeholder:text-muted-foreground/40 resize-none focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+              </div>
+
+              {/* OpenRouter API Key */}
+              <div className="flex flex-col gap-1.5 pt-2 border-t border-border">
+                <div className="flex items-center gap-2">
+                  <Key className="h-3.5 w-3.5 text-muted-foreground" />
+                  <label className="text-xs font-medium text-foreground">OpenRouter API Key</label>
+                </div>
+                <Input
+                  type="password"
+                  placeholder={credentials?.hasOpenrouterApiKey ? "••••••••••••••••" : "sk-or-..."}
+                  value={openrouterApiKey}
+                  onChange={(e) => setOpenrouterApiKey(e.target.value)}
+                  className="h-9 bg-secondary border-border text-xs font-mono placeholder:text-muted-foreground/40"
                 />
                 <p className="text-[11px] text-muted-foreground">
-                  Paste the output of:{" "}
-                  <code
-                    className="text-[10px] cursor-pointer"
-                    onClick={() => {
-                      navigator.clipboard.writeText('security find-generic-password -s "Claude Code-credentials" -w')
-                      setCopied(true)
-                      setTimeout(() => setCopied(false), 1500)
-                    }}
-                  >
-                    {copied
-                      ? <Check className="inline h-2.5 w-2.5 text-green-500 mr-1 align-middle" />
-                      : <Copy className="inline h-2.5 w-2.5 text-muted-foreground/60 mr-1 align-middle" />}
-                    security find-generic-password -s &quot;Claude Code-credentials&quot; -w
-                  </code>
+                  Used by OpenCode agent for OpenRouter models
+                  {credentials?.hasOpenrouterApiKey && (
+                    <span className="text-green-500 ml-1">• Key saved</span>
+                  )}
                 </p>
-              </>
-            )}
-          </div>
+              </div>
+            </>
+          )}
 
-          {/* Sandbox Settings */}
-          <div className="flex flex-col gap-1.5 pt-2 border-t border-border">
-            <div className="flex items-center gap-2">
-              <Clock className="h-3.5 w-3.5 text-muted-foreground" />
-              <label className="text-xs font-medium text-foreground">Sandbox Auto-Stop</label>
-            </div>
-            <div className="flex items-center gap-3">
-              <input
-                type="range"
-                min={5}
-                max={20}
-                value={sandboxAutoStopInterval}
-                onChange={(e) => setSandboxAutoStopInterval(Number(e.target.value))}
-                className="flex-1 h-1.5 bg-secondary rounded-full appearance-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:h-3.5 [&::-webkit-slider-thumb]:w-3.5 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-primary [&::-webkit-slider-thumb]:cursor-pointer [&::-moz-range-thumb]:h-3.5 [&::-moz-range-thumb]:w-3.5 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:bg-primary [&::-moz-range-thumb]:border-0 [&::-moz-range-thumb]:cursor-pointer"
-              />
-              <span className="text-xs font-medium text-foreground w-16 text-right">{sandboxAutoStopInterval} min</span>
-            </div>
-            <p className="text-[11px] text-muted-foreground">
-              Sandboxes will auto-stop after {sandboxAutoStopInterval} minutes of inactivity
-            </p>
-          </div>
+          {activeTab === "sandboxes" && (
+            <>
+              {/* Sandbox Auto-Stop */}
+              <div className="flex flex-col gap-1.5">
+                <div className="flex items-center gap-2">
+                  <Clock className="h-3.5 w-3.5 text-muted-foreground" />
+                  <label className="text-xs font-medium text-foreground">Auto-Stop Timeout</label>
+                </div>
+                <div className="flex items-center gap-3">
+                  <input
+                    type="range"
+                    min={5}
+                    max={20}
+                    value={sandboxAutoStopInterval}
+                    onChange={(e) => setSandboxAutoStopInterval(Number(e.target.value))}
+                    className="flex-1 h-1.5 bg-secondary rounded-full appearance-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:h-3.5 [&::-webkit-slider-thumb]:w-3.5 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-primary [&::-webkit-slider-thumb]:cursor-pointer [&::-moz-range-thumb]:h-3.5 [&::-moz-range-thumb]:w-3.5 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:bg-primary [&::-moz-range-thumb]:border-0 [&::-moz-range-thumb]:cursor-pointer"
+                  />
+                  <span className="text-xs font-medium text-foreground w-16 text-right">{sandboxAutoStopInterval} min</span>
+                </div>
+                <p className="text-[11px] text-muted-foreground">
+                  Sandboxes will auto-stop after {sandboxAutoStopInterval} minutes of inactivity
+                </p>
+              </div>
+            </>
+          )}
         </div>
 
         {/* Footer */}
@@ -245,7 +368,7 @@ export function SettingsModal({ open, onClose, credentials, onCredentialsUpdate 
             {isSaving && (
               <>
                 <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" />
-                <span className="text-muted-foreground">Saving credentials...</span>
+                <span className="text-muted-foreground">Saving...</span>
               </>
             )}
             {saveStatus && !isSaving && (

@@ -59,6 +59,7 @@ export interface UserCredentials {
   hasAnthropicApiKey: boolean
   hasAnthropicAuthToken: boolean
   hasOpenaiApiKey: boolean
+  hasOpenrouterApiKey: boolean
   sandboxAutoStopInterval?: number
 }
 

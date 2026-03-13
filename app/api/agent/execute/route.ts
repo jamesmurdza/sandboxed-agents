@@ -43,8 +43,8 @@ export async function POST(req: Request) {
   const daytonaApiKey = getDaytonaApiKey()
   if (isDaytonaKeyError(daytonaApiKey)) return daytonaApiKey
 
-  // Decrypt user's credentials (Anthropic and OpenAI)
-  const { anthropicApiKey, anthropicAuthToken, anthropicAuthType, openaiApiKey } =
+  // Decrypt user's credentials (Anthropic, OpenAI, and OpenRouter)
+  const { anthropicApiKey, anthropicAuthToken, anthropicAuthType, openaiApiKey, openrouterApiKey } =
     decryptUserCredentials(sandboxRecord.user.credentials)
 
   // Determine repo name from database or request
@@ -77,7 +77,9 @@ export async function POST(req: Request) {
       anthropicAuthToken,
       sandboxRecord.sessionId || undefined, // Pass database session ID for resumption
       openaiApiKey,
-      agent
+      agent,
+      model, // Pass model for API key selection
+      openrouterApiKey
     )
 
     // 5. Verify message exists before creating AgentExecution (prevents FK constraint violation)

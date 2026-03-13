@@ -4,6 +4,81 @@ import { PATHS, SANDBOX_CONFIG } from "@/lib/constants"
 import type { Agent } from "@/lib/types"
 
 /**
+ * Determines which API key(s) to inject based on agent type and selected model.
+ * Returns environment variables appropriate for the model provider.
+ */
+function getEnvForModel(
+  model: string | undefined,
+  agent: Agent | undefined,
+  credentials: {
+    anthropicApiKey?: string
+    anthropicAuthType?: string
+    openaiApiKey?: string
+    openrouterApiKey?: string
+  }
+): Record<string, string> {
+  const env: Record<string, string> = {}
+
+  // For Claude Code agent, always use Anthropic credentials
+  if (agent === "claude-code" || !agent) {
+    if (credentials.anthropicAuthType !== "claude-max" && credentials.anthropicApiKey) {
+      env.ANTHROPIC_API_KEY = credentials.anthropicApiKey
+    }
+    return env
+  }
+
+  // For OpenCode agent, select API key based on model prefix
+  if (agent === "opencode") {
+    // Parse the model string to determine provider
+    // Model formats: "anthropic/claude-sonnet-4-...", "openai/gpt-4o", "google/gemini-...", "opencode/big-pickle"
+    const modelPrefix = model?.split("/")[0]?.toLowerCase()
+
+    switch (modelPrefix) {
+      case "anthropic":
+        // Claude models through OpenCode use Anthropic API key
+        if (credentials.anthropicApiKey) {
+          env.ANTHROPIC_API_KEY = credentials.anthropicApiKey
+        }
+        break
+
+      case "openai":
+        // OpenAI models (GPT-4o, etc.)
+        if (credentials.openaiApiKey) {
+          env.OPENAI_API_KEY = credentials.openaiApiKey
+        }
+        break
+
+      case "google":
+        // Google/Gemini models - OpenRouter can route these
+        if (credentials.openrouterApiKey) {
+          env.OPENROUTER_API_KEY = credentials.openrouterApiKey
+        }
+        break
+
+      case "opencode":
+        // Big Pickle model - no API key needed (free model)
+        break
+
+      default:
+        // Unknown model - try OpenRouter as fallback for routing
+        if (credentials.openrouterApiKey) {
+          env.OPENROUTER_API_KEY = credentials.openrouterApiKey
+        }
+        // Also include OpenAI and Anthropic keys for flexibility
+        if (credentials.openaiApiKey) {
+          env.OPENAI_API_KEY = credentials.openaiApiKey
+        }
+        if (credentials.anthropicApiKey) {
+          env.ANTHROPIC_API_KEY = credentials.anthropicApiKey
+        }
+        break
+    }
+  }
+
+  return env
+}
+
+/**
  * Ensures a sandbox is running and ready for agent execution.
  * If the sandbox was stopped, it restarts it and sets up credentials.
  * The SDK handles CLI installation automatically when creating a session.
@@ -21,7 +96,11 @@ export async function ensureSandboxReady(
   // OpenAI API key for Codex and OpenCode agents
   openaiApiKey?: string,
   // Agent type to determine which credentials to include
-  agent?: Agent
+  agent?: Agent,
+  // Model selection for determining which API key to use
+  model?: string,
+  // OpenRouter API key for OpenRouter models
+  openrouterApiKey?: string
 ): Promise<{
   sandbox: Awaited<ReturnType<InstanceType<typeof Daytona>["get"]>>
   wasResumed: boolean
@@ -49,20 +128,13 @@ export async function ensureSandboxReady(
     )
   }
 
-  // Build environment variables for SDK
-  const env: Record<string, string> = {}
-
-  // Set API key environment if using API key auth
-  if (anthropicAuthType !== "claude-max" && anthropicApiKey) {
-    env.ANTHROPIC_API_KEY = anthropicApiKey
-  }
-
-  // Include OpenAI API key for OpenCode (supports multiple providers)
-  // OpenCode can use ANTHROPIC_API_KEY, OPENAI_API_KEY, or GOOGLE_API_KEY
-  // It also works with big-pickle models without any API key
-  if (openaiApiKey) {
-    env.OPENAI_API_KEY = openaiApiKey
-  }
+  // Get environment variables based on model and agent
+  const env = getEnvForModel(model, agent, {
+    anthropicApiKey,
+    anthropicAuthType,
+    openaiApiKey,
+    openrouterApiKey,
+  })
 
   return {
     sandbox,

@@ -12,7 +12,14 @@ export async function POST(req: Request) {
   const { userId } = authResult
 
   const body = await req.json()
-  const { anthropicApiKey, anthropicAuthType, anthropicAuthToken, sandboxAutoStopInterval } = body
+  const {
+    anthropicApiKey,
+    anthropicAuthType,
+    anthropicAuthToken,
+    openaiApiKey,
+    openrouterApiKey,
+    sandboxAutoStopInterval,
+  } = body
 
   if (!anthropicAuthType || !["api-key", "claude-max"].includes(anthropicAuthType)) {
     return badRequest("Invalid auth type")
@@ -25,24 +32,35 @@ export async function POST(req: Request) {
     }
   }
 
-  // Encrypt credentials before storing
-  const encryptedApiKey = anthropicApiKey ? encrypt(anthropicApiKey) : null
-  const encryptedAuthToken = anthropicAuthToken ? encrypt(anthropicAuthToken) : null
+  // Build the update/create data object with only provided (non-empty) fields
+  // This prevents overwriting existing saved keys when fields are left empty
+  const updateData: Record<string, unknown> = {
+    anthropicAuthType,
+  }
+
+  // Only update credentials that were explicitly provided (non-empty strings)
+  if (anthropicApiKey) {
+    updateData.anthropicApiKey = encrypt(anthropicApiKey)
+  }
+  if (anthropicAuthToken) {
+    updateData.anthropicAuthToken = encrypt(anthropicAuthToken)
+  }
+  if (openaiApiKey) {
+    updateData.openaiApiKey = encrypt(openaiApiKey)
+  }
+  if (openrouterApiKey) {
+    updateData.openrouterApiKey = encrypt(openrouterApiKey)
+  }
+  if (sandboxAutoStopInterval !== undefined) {
+    updateData.sandboxAutoStopInterval = sandboxAutoStopInterval
+  }
 
   await prisma.userCredentials.upsert({
     where: { userId },
-    update: {
-      anthropicApiKey: encryptedApiKey,
-      anthropicAuthType,
-      anthropicAuthToken: encryptedAuthToken,
-      ...(sandboxAutoStopInterval !== undefined && { sandboxAutoStopInterval }),
-    },
+    update: updateData,
     create: {
       userId,
-      anthropicApiKey: encryptedApiKey,
-      anthropicAuthType,
-      anthropicAuthToken: encryptedAuthToken,
-      ...(sandboxAutoStopInterval !== undefined && { sandboxAutoStopInterval }),
+      ...updateData,
     },
   })
 

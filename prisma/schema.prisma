@@ -75,6 +75,9 @@ model UserCredentials {
   // Encrypted OpenAI credentials (for Codex and OpenCode agents)
   openaiApiKey String? @db.Text
 
+  // Encrypted OpenRouter credentials (for OpenCode agents with OpenRouter models)
+  openrouterApiKey String? @db.Text
+
   // Sandbox settings
   sandboxAutoStopInterval Int @default(5) // 5-20 minutes
 
