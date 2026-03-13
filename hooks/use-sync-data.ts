@@ -16,7 +16,9 @@ export interface SyncBranch {
   agent: string | null
   model: string | null
   sandboxId: string | null
+  sandboxStatus: string | null
   lastMessageId: string | null
+  lastMessageAt: number | null
 }
 
 export interface SyncRepo {
@@ -29,6 +31,7 @@ export interface SyncRepo {
 }
 
 export interface SyncData {
+  timestamp: number
   repos: SyncRepo[]
 }
 
