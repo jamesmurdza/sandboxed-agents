@@ -26,7 +26,7 @@ import {
 import type { Sandbox as DaytonaSandbox } from "@daytonaio/sdk"
 import { type Agent, getProviderForAgent } from "@/lib/types"
 import { PATHS, SANDBOX_CONFIG } from "@/lib/constants"
-import { appendEvent } from "@/lib/agent-events"
+import { updateSnapshot } from "@/lib/agent-events"
 
 // =============================================================================
 // Types
@@ -412,9 +412,8 @@ export interface PollBackgroundOptions {
   env?: Record<string, string>
   agent?: Agent
   /**
-   * Optional AgentExecution.id used for streaming snapshots into AgentEvent.
-   * When provided, each poll appends a "content" event to the DB so SSE
-   * consumers can stream from a shared event log.
+   * Optional AgentExecution.id; when provided, each poll writes latest snapshot
+   * to execution.latestSnapshot for status API.
    */
   agentExecutionId?: string
 }
@@ -455,17 +454,17 @@ export async function pollBackgroundAgent(
 
     const { content, toolCalls, contentBlocks } = buildContentBlocks(allEvents)
 
-    // Persist snapshot to AgentEvent only when it changed (reduces writes while agent is idle).
+    // Persist snapshot to execution row only when it changed (reduces writes while agent is idle).
     if (options.agentExecutionId) {
       const payload = { content, toolCalls, contentBlocks }
       const key = JSON.stringify(payload)
       if (lastSnapshotByExecutionId.get(options.agentExecutionId) !== key) {
         lastSnapshotByExecutionId.set(options.agentExecutionId, key)
         try {
-          await appendEvent(options.agentExecutionId, "content", payload)
+          await updateSnapshot(options.agentExecutionId, payload)
         } catch (error) {
           console.error(
-            "[agent-session] failed to append agent event",
+            "[agent-session] failed to update snapshot",
             { agentExecutionId: options.agentExecutionId },
             error,
           )

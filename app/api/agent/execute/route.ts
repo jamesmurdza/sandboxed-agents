@@ -135,7 +135,7 @@ export async function POST(req: Request) {
 
     // 8. Start a single background poller for this execution.
     // This loop polls the Daytona background session and writes streaming
-    // snapshots into AgentEvent for SSE consumers, then marks the execution
+    // snapshots into execution.latestSnapshot for status API, then marks the execution
     // complete and updates message / branch / sandbox status.
     startAgentPoller({
       agentExecutionId: agentExecution.id,

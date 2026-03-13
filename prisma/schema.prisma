@@ -167,40 +167,21 @@ model Message {
   @@index([branchId, createdAt])
 }
 
-// Tracks background agent executions that survive browser close
+// Tracks background agent executions that survive browser close.
+// latestSnapshot holds the current streaming content until completion (then final content is on Message).
 model AgentExecution {
   id        String @id @default(cuid())
   messageId String @unique
   message   Message @relation(fields: [messageId], references: [id], onDelete: Cascade)
 
   sandboxId   String
-  executionId String @unique // Used to identify the output file in sandbox
+  executionId String @unique // SDK execution id, used for client lookup
 
   status      String   @default("running") // "running" | "completed" | "error"
   startedAt   DateTime @default(now())
   completedAt DateTime?
 
-  events AgentEvent[]
+  latestSnapshot Json? // { content?, toolCalls?, contentBlocks? } during run; cleared on completion
 
   @@index([sandboxId, status])
-}
-
-// Stores streaming events during agent execution for SSE delivery
-// Events are cleaned up after execution completes (content preserved in final message)
-model AgentEvent {
-  id          String @id @default(cuid())
-  executionId String
-  execution   AgentExecution @relation(fields: [executionId], references: [id], onDelete: Cascade)
-
-  // Event ordering (monotonic within execution)
-  eventIndex Int
-
-  // Event data
-  type String // "content" | "tool_start" | "tool_end" | "error"
-  data Json   // Event payload
-
-  createdAt DateTime @default(now())
-
-  @@unique([executionId, eventIndex])
-  @@index([executionId, eventIndex])
 }

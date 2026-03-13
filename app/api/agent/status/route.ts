@@ -38,21 +38,7 @@ export async function POST(req: Request) {
     return unauthorized()
   }
 
-  // Read the latest snapshot from AgentEvent, if any.
-  // Use a loose cast here to avoid tight coupling to the generated Prisma types.
-  const agentEventDelegate = (prisma as any).agentEvent as {
-    findFirst: (args: any) => Promise<{ data: unknown } | null>
-  }
-
-  const latestEvent = agentEventDelegate
-    ? await agentEventDelegate.findFirst({
-        where: { executionId: execution.id },
-        orderBy: { eventIndex: "desc" },
-        select: { data: true },
-      })
-    : null
-
-  const snapshot = (latestEvent?.data as any) ?? {}
+  const snapshot = ((execution as { latestSnapshot?: unknown }).latestSnapshot as Record<string, unknown> | null) ?? {}
 
   return Response.json({
     status: execution.status,

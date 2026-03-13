@@ -2,7 +2,6 @@ import type { Sandbox as DaytonaSandbox } from "@daytonaio/sdk"
 import { prisma } from "@/lib/prisma"
 import type { Agent } from "@/lib/types"
 import { pollBackgroundAgent, clearLastSnapshotForExecution, type PollBackgroundOptions } from "@/lib/agent-session"
-import { flushEvents, cleanupEvents } from "@/lib/agent-events"
 
 // Track active pollers to ensure a single background loop per AgentExecution.
 const activePollers = new Map<string, Promise<void>>()
@@ -27,11 +26,9 @@ export async function startAgentPoller(options: StartAgentPollerOptions): Promis
 
   const pollerPromise = (async () => {
     try {
-      // Main polling loop: keep polling the Daytona background session until
-      // the SDK reports completion or error.
-      // Each poll writes a snapshot event into AgentEvent via agentExecutionId.
-      // On completion, we flush events and update Prisma state.
-      // Small fixed delay keeps load reasonable while still responsive.
+      // Poll the Daytona background session until completion; each poll updates
+      // execution.latestSnapshot when content changes. On completion, persist
+      // to Message and clear snapshot.
       for (;;) {
         const result = await pollBackgroundAgent(sandbox, backgroundSessionId, {
           ...(pollOptions as PollBackgroundOptions),
@@ -40,8 +37,6 @@ export async function startAgentPoller(options: StartAgentPollerOptions): Promis
 
         if (result.status === "completed" || result.status === "error") {
           clearLastSnapshotForExecution(agentExecutionId)
-          // Ensure all buffered events are visible to SSE consumers.
-          await flushEvents(agentExecutionId)
 
           // Load execution with its message so we can persist the final content
           // and mark execution/branch/sandbox as idle.
@@ -73,13 +68,14 @@ export async function startAgentPoller(options: StartAgentPollerOptions): Promis
               }),
             )
 
-            // Update execution status and completion time.
+            // Update execution status, completion time, and clear streaming snapshot.
             updates.push(
               prisma.agentExecution.update({
                 where: { id: execution.id },
                 data: {
                   status: result.status,
                   completedAt: new Date(),
+                  latestSnapshot: null,
                 },
               }),
             )
@@ -104,22 +100,10 @@ export async function startAgentPoller(options: StartAgentPollerOptions): Promis
             await prisma.$transaction(updates)
           }
 
-          // Schedule cleanup of ephemeral AgentEvent rows after a short delay;
-          // client stops polling on completed so 15s is enough.
-          setTimeout(() => {
-            cleanupEvents(agentExecutionId).catch((error) => {
-              console.error(
-                "[agent-poller] failed to cleanup events",
-                { agentExecutionId },
-                error,
-              )
-            })
-          }, 15_000)
-
           break
         }
 
-        await sleep(200)
+        await sleep(500)
       }
     } catch (error) {
       console.error("[agent-poller] unhandled poller error", { agentExecutionId }, error)
