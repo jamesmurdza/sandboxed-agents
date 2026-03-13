@@ -420,10 +420,32 @@ Alternatively, reuse `executionId` as the background session ID if SDK allows cu
 
 ---
 
+## Authentication
+
+**✅ Confirmed Compatible** - The SDK supports both authentication methods:
+
+1. **API Key**: Pass `ANTHROPIC_API_KEY` environment variable
+2. **Claude Max OAuth**: Write credentials to `/home/daytona/.claude/.credentials.json`
+
+The current code already writes Claude Max OAuth tokens to the correct location (`/home/daytona/.claude/.credentials.json`), so no changes are needed for authentication. Credentials must be pre-configured in the sandbox before creating a session.
+
+**Current auth flow (unchanged):**
+```typescript
+// In sandbox-resume.ts - this stays the same
+if (anthropicAuthType === "claude-max" && anthropicAuthToken) {
+  const credentialsB64 = Buffer.from(anthropicAuthToken).toString("base64")
+  await sandbox.process.executeCommand(
+    `mkdir -p /home/daytona/.claude && echo '${credentialsB64}' | base64 -d > /home/daytona/.claude/.credentials.json && chmod 600 /home/daytona/.claude/.credentials.json`
+  )
+}
+```
+
+---
+
 ## Risks & Considerations
 
 1. **Package not published**: Install from GitHub until npm publish
-2. **Claude Max auth**: Verify SDK supports Claude Max credentials (may need to pass auth token)
+2. ~~**Claude Max auth**: Verify SDK supports Claude Max credentials~~ ✅ Confirmed compatible
 3. **Session ID format**: Ensure SDK session IDs are compatible with current DB storage
 4. **Event format differences**: May need adjustment to frontend if event format changes
 5. **Breaking changes**: SDK is pre-1.0, API may change
@@ -442,7 +464,7 @@ Alternatively, reuse `executionId` as the background session ID if SDK allows cu
 
 ## Open Questions
 
-1. **Claude Max Authentication**: Does the SDK support Claude Max OAuth tokens, or only API keys? Current code writes credentials to `/home/daytona/.claude/.credentials.json` - need to verify SDK can use this.
+1. ~~**Claude Max Authentication**~~: ✅ Resolved - SDK supports OAuth tokens at `/home/daytona/.claude/.credentials.json`
 
 2. **Custom Session IDs**: Can we provide our own `executionId` to the SDK, or must we use SDK-generated IDs?
 
