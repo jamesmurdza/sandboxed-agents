@@ -3,6 +3,18 @@ import type { Branch, Message } from "@/lib/types"
 import { generateId } from "@/lib/store"
 import { BRANCH_STATUS, EXECUTION_STATUS, PATHS } from "@/lib/constants"
 
+// Global map to track polling intervals per branch - persists across hook re-renders
+// This allows multiple branches to poll simultaneously without interfering with each other
+const globalPollingMap = new Map<string, {
+  intervalId: NodeJS.Timeout
+  messageId: string
+  executionId?: string
+}>()
+
+// Global map to track which branches are actively streaming
+// Used by sync to know when to skip message reloads
+const globalStreamingBranches = new Map<string, string>() // branchId -> messageId
+
 interface UseExecutionPollingOptions {
   branch: Branch
   repoName: string
@@ -15,6 +27,16 @@ interface UseExecutionPollingOptions {
   onCommitsDetected?: () => void
   /** Ref to signal that streaming is active - used by sync to avoid overwriting */
   streamingMessageIdRef?: React.MutableRefObject<string | null>
+}
+
+/** Check if any branch is currently streaming (for sync coordination) */
+export function isAnyBranchStreaming(): boolean {
+  return globalStreamingBranches.size > 0
+}
+
+/** Check if a specific branch is streaming */
+export function isBranchStreaming(branchId: string): boolean {
+  return globalStreamingBranches.has(branchId)
 }
 
 /**
@@ -31,12 +53,10 @@ export function useExecutionPolling({
   onCommitsDetected,
   streamingMessageIdRef,
 }: UseExecutionPollingOptions) {
-  const pollingRef = useRef<NodeJS.Timeout | null>(null)
   const currentExecutionIdRef = useRef<string | null>(null)
   const currentMessageIdRef = useRef<string | null>(null)
   const startingCommitRef = useRef<string | null>(branch.startCommit || null)
   const startPollingRef = useRef<(messageId: string, executionId?: string) => void>(() => {})
-  const pollingBranchIdRef = useRef<string | null>(null)
   // Use refs to always get the latest branch name/sandboxId in the polling callback
   // This prevents stale closures when the branch is renamed during polling
   const branchNameRef = useRef(branch.name)
@@ -58,28 +78,29 @@ export function useExecutionPolling({
     }
   }, [branch.id, branch.startCommit])
 
-  // Cleanup polling on unmount
-  useEffect(() => {
-    return () => {
-      if (pollingRef.current) {
-        clearInterval(pollingRef.current)
-        pollingRef.current = null
-      }
-    }
-  }, [])
+  // NOTE: We no longer cleanup polling on unmount because polling is now
+  // tracked globally per-branch. This allows polling to continue even when
+  // the user switches to a different branch.
 
   // Start polling for execution status via HTTP snapshots
+  // Uses global polling map to allow multiple branches to poll simultaneously
   const startPolling = useCallback((messageId: string, executionId?: string) => {
-    pollingBranchIdRef.current = branch.id
+    // Capture the branch ID at the time polling starts
+    const pollingBranchId = branch.id
+
+    // Set streaming signal for sync coordination (both legacy ref and new global map)
     if (streamingMessageIdRef) {
       streamingMessageIdRef.current = messageId
     }
+    globalStreamingBranches.set(pollingBranchId, messageId)
+
     currentMessageIdRef.current = messageId
 
-    // Clear any existing polling interval
-    if (pollingRef.current) {
-      clearInterval(pollingRef.current)
-      pollingRef.current = null
+    // Clear any existing polling interval for THIS branch only
+    const existingPolling = globalPollingMap.get(pollingBranchId)
+    if (existingPolling) {
+      clearInterval(existingPolling.intervalId)
+      globalPollingMap.delete(pollingBranchId)
     }
 
     let notFoundRetries = 0
@@ -100,15 +121,16 @@ export function useExecutionPolling({
           if (res.status === 404 && data.error === "Execution not found") {
             notFoundRetries++
             if (notFoundRetries >= MAX_NOT_FOUND_RETRIES) {
-              if (pollingRef.current) {
-                clearInterval(pollingRef.current)
-                pollingRef.current = null
+              // Clear polling for this branch
+              const polling = globalPollingMap.get(pollingBranchId)
+              if (polling) {
+                clearInterval(polling.intervalId)
+                globalPollingMap.delete(pollingBranchId)
               }
+              globalStreamingBranches.delete(pollingBranchId)
               currentExecutionIdRef.current = null
               currentMessageIdRef.current = null
-              if (pollingBranchIdRef.current) {
-                onUpdateBranch(pollingBranchIdRef.current, { status: BRANCH_STATUS.IDLE })
-              }
+              onUpdateBranch(pollingBranchId, { status: BRANCH_STATUS.IDLE })
             }
             return
           }
@@ -163,16 +185,13 @@ export function useExecutionPolling({
             },
           )
 
-          // Use pollingBranchIdRef to ensure updates go to the correct branch
-          const targetBranchId = pollingBranchIdRef.current
-          if (targetBranchId) {
-            onUpdateMessage(targetBranchId, messageId, {
-              content: data.content || "",
-              toolCalls: toolCallsWithIds,
-              contentBlocks:
-                contentBlocksWithIds.length > 0 ? contentBlocksWithIds : undefined,
-            })
-          }
+          // Use the captured branch ID to ensure updates go to the correct branch
+          onUpdateMessage(pollingBranchId, messageId, {
+            content: data.content || "",
+            toolCalls: toolCallsWithIds,
+            contentBlocks:
+              contentBlocksWithIds.length > 0 ? contentBlocksWithIds : undefined,
+          })
         }
 
         // Check if completed or error (only run completion once; multiple in-flight polls can all see "completed")
@@ -183,26 +202,27 @@ export function useExecutionPolling({
           if (completionHandled) return
           completionHandled = true
 
-          if (pollingRef.current) {
-            clearInterval(pollingRef.current)
-            pollingRef.current = null
+          // Clear polling for this branch
+          const polling = globalPollingMap.get(pollingBranchId)
+          if (polling) {
+            clearInterval(polling.intervalId)
+            globalPollingMap.delete(pollingBranchId)
           }
+          globalStreamingBranches.delete(pollingBranchId)
+
           currentExecutionIdRef.current = null
           currentMessageIdRef.current = null
-          // Clear streaming signal so sync can resume normal behavior
-          if (streamingMessageIdRef) {
+          // Clear legacy streaming signal if it matches this branch's message
+          if (streamingMessageIdRef && streamingMessageIdRef.current === messageId) {
             streamingMessageIdRef.current = null
           }
 
           if (data.status === EXECUTION_STATUS.ERROR && data.error) {
-            const targetBranchId = pollingBranchIdRef.current
-            if (targetBranchId) {
-              onUpdateMessage(targetBranchId, messageId, {
-                content: data.content
-                  ? `${data.content}\n\nError: ${data.error}`
-                  : `Error: ${data.error}`,
-              })
-            }
+            onUpdateMessage(pollingBranchId, messageId, {
+              content: data.content
+                ? `${data.content}\n\nError: ${data.error}`
+                : `Error: ${data.error}`,
+            })
           }
 
           onForceSave()
@@ -247,23 +267,19 @@ export function useExecutionPolling({
                   (c) => !chatCommits.has(c.shortHash),
                 )
 
-                // Use pollingBranchIdRef to ensure commits go to the correct branch
-                // even if user switched branches during execution
-                const targetBranchId = pollingBranchIdRef.current
-                if (targetBranchId) {
-                  for (const c of [...newCommits].reverse()) {
-                    onAddMessage(targetBranchId, {
-                      id: generateId(),
-                      role: "assistant",
-                      content: "",
-                      timestamp: new Date().toLocaleTimeString([], {
-                        hour: "2-digit",
-                        minute: "2-digit",
-                      }),
-                      commitHash: c.shortHash,
-                      commitMessage: c.message,
-                    })
-                  }
+                // Use the captured branch ID to ensure commits go to the correct branch
+                for (const c of [...newCommits].reverse()) {
+                  onAddMessage(pollingBranchId, {
+                    id: generateId(),
+                    role: "assistant",
+                    content: "",
+                    timestamp: new Date().toLocaleTimeString([], {
+                      hour: "2-digit",
+                      minute: "2-digit",
+                    }),
+                    commitHash: c.shortHash,
+                    commitMessage: c.message,
+                  })
                 }
                 if (newCommits.length > 0) {
                   startingCommitRef.current = allCommits[0].shortHash
@@ -275,15 +291,13 @@ export function useExecutionPolling({
             }
           }
 
-          const completedBranchId = pollingBranchIdRef.current
-          if (completedBranchId) {
-            onUpdateBranch(completedBranchId, {
-              status: "idle",
-              lastActivity: "now",
-              lastActivityTs: Date.now(),
-              unread: activeBranchIdRef.current !== completedBranchId,
-            })
-          }
+          onUpdateBranch(pollingBranchId, {
+            status: "idle",
+            lastActivity: "now",
+            lastActivityTs: Date.now(),
+            unread: activeBranchIdRef.current !== pollingBranchId,
+          })
+
           try {
             const ctx = new AudioContext()
             const osc = ctx.createOscillator()
@@ -309,44 +323,57 @@ export function useExecutionPolling({
     }
 
     poll()
-    pollingRef.current = setInterval(poll, 500)
+    const intervalId = setInterval(poll, 500)
+    globalPollingMap.set(pollingBranchId, { intervalId, messageId, executionId })
   // Note: branch.sandboxId, branch.name, and branch.messages are accessed via refs to avoid stale closures
   // This is critical - including branch.messages in deps causes the callback to be recreated on every
   // message update, which clears the polling interval and causes streaming content to disappear
-  }, [repoName, onUpdateMessage, onUpdateBranch, onAddMessage, onForceSave, onCommitsDetected, streamingMessageIdRef])
+  // branch.id is now captured at call time, not via closure
+  }, [branch.id, repoName, onUpdateMessage, onUpdateBranch, onAddMessage, onForceSave, onCommitsDetected, streamingMessageIdRef])
 
   startPollingRef.current = startPolling
 
-  // Stop polling and update message
+  // Stop polling and update message for the current branch
   const stopPolling = useCallback(() => {
-    if (pollingRef.current) {
-      clearInterval(pollingRef.current)
-      pollingRef.current = null
+    const currentBranchId = branch.id
+    const polling = globalPollingMap.get(currentBranchId)
+
+    if (polling) {
+      clearInterval(polling.intervalId)
+      globalPollingMap.delete(currentBranchId)
     }
-    if (currentMessageIdRef.current && pollingBranchIdRef.current) {
+    globalStreamingBranches.delete(currentBranchId)
+
+    if (currentMessageIdRef.current) {
       // Use ref to get current messages to avoid dependency issues
       const lastMsg = branchMessagesRef.current.find(m => m.id === currentMessageIdRef.current)
       const currentContent = lastMsg?.content || ""
-      onUpdateMessage(pollingBranchIdRef.current, currentMessageIdRef.current, {
+      onUpdateMessage(currentBranchId, currentMessageIdRef.current, {
         content: currentContent ? `${currentContent}\n\n[Stopped by user]` : "[Stopped by user]"
       })
     }
 
     currentExecutionIdRef.current = null
     currentMessageIdRef.current = null
-    // Clear streaming signal so sync can resume normal behavior
+    // Clear legacy streaming signal so sync can resume normal behavior
     if (streamingMessageIdRef) {
       streamingMessageIdRef.current = null
     }
-    if (pollingBranchIdRef.current) {
-      onUpdateBranch(pollingBranchIdRef.current, { status: BRANCH_STATUS.IDLE })
-    }
-  }, [onUpdateMessage, onUpdateBranch, streamingMessageIdRef])
+    onUpdateBranch(currentBranchId, { status: BRANCH_STATUS.IDLE })
+  }, [branch.id, onUpdateMessage, onUpdateBranch, streamingMessageIdRef])
 
   // Check and resume polling on mount/branch switch
   useEffect(() => {
     if (!branch.sandboxId) return
-    if (pollingRef.current) return
+
+    // Check if polling is already active for this branch in the global map
+    const existingPolling = globalPollingMap.get(branch.id)
+    if (existingPolling) {
+      // Polling is already running for this branch, just update refs
+      currentMessageIdRef.current = existingPolling.messageId
+      currentExecutionIdRef.current = existingPolling.executionId || null
+      return
+    }
 
     const currentStatus = branch.status
     const currentMessages = branch.messages
@@ -360,7 +387,7 @@ export function useExecutionPolling({
       .then((data) => {
         if (data.state && data.state !== "started") {
           onUpdateBranch(branch.id, { status: BRANCH_STATUS.STOPPED })
-        } else if (currentStatus === BRANCH_STATUS.RUNNING && !pollingRef.current) {
+        } else if (currentStatus === BRANCH_STATUS.RUNNING && !globalPollingMap.has(branch.id)) {
           if (currentMessages && currentMessages.length > 0) {
             const lastAssistantMsg = [...currentMessages].reverse().find(m => m.role === "assistant" && !m.commitHash)
             if (lastAssistantMsg) {

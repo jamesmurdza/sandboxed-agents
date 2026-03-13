@@ -5,6 +5,7 @@ import {
   updateBranchAcrossRepos,
   setBranchesInRepo,
 } from "@/lib/state-utils"
+import { isBranchStreaming } from "@/components/chat/hooks"
 
 // Sync data shape from the API
 export interface SyncBranch {
@@ -198,12 +199,13 @@ export function useSyncData({ setRepos, activeBranchIdRef, streamingMessageIdRef
               // The unread indicator can be derived when rendering the sidebar.
               // This avoids re-rendering the entire app every time a running agent produces a message.
               if (syncBranch.id === activeBranchIdRef.current) {
-                // CRITICAL: Skip message reload if a message is currently being streamed
+                // CRITICAL: Skip message reload if THIS SPECIFIC branch is currently streaming
                 // This prevents sync from overwriting streaming content with stale DB data
                 // The polling mechanism handles real-time updates during streaming
-                if (streamingMessageIdRef?.current) {
-                  // Skip this sync cycle - streaming is in progress
-                  return
+                // Use the per-branch streaming check to allow other branches to sync normally
+                if (isBranchStreaming(syncBranch.id) || streamingMessageIdRef?.current) {
+                  // Skip this branch's sync cycle - streaming is in progress
+                  continue
                 }
 
                 // Reload messages for active branch
@@ -211,7 +213,7 @@ export function useSyncData({ setRepos, activeBranchIdRef, streamingMessageIdRef
                   .then((r) => r.json())
                   .then((msgData) => {
                     // Double-check streaming hasn't started while we were fetching
-                    if (streamingMessageIdRef?.current) {
+                    if (isBranchStreaming(syncBranch.id) || streamingMessageIdRef?.current) {
                       return
                     }
                     if (msgData.messages) {
