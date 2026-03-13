@@ -339,13 +339,6 @@ export async function startBackgroundAgent(
   // Cast sandbox for SDK version compatibility
   const sandboxForSdk = sandbox as unknown as NonNullable<BackgroundSessionOptions['sandbox']>
 
-  console.log("[agent-session] startBackgroundAgent:attach-or-create", {
-    repoPath: options.repoPath,
-    model: options.model,
-    sessionId: options.sessionId,
-    requestedBackgroundSessionId: options.backgroundSessionId,
-  })
-
   // If we have an existing background session ID, reuse it via getBackgroundSession.
   // Otherwise, create a new background session.
   const bgSession = options.backgroundSessionId
@@ -364,20 +357,7 @@ export async function startBackgroundAgent(
         env: options.env,
       })
 
-  console.log("[agent-session] startBackgroundAgent:resolved", {
-    repoPath: options.repoPath,
-    model: options.model,
-    sessionId: options.sessionId,
-    requestedBackgroundSessionId: options.backgroundSessionId,
-    resolvedBackgroundSessionId: bgSession.id,
-  })
-
   const result = await bgSession.start(options.prompt)
-
-  console.log("[agent-session] startBackgroundAgent:started", {
-    resolvedBackgroundSessionId: bgSession.id,
-    executionId: result.executionId,
-  })
 
   // The background session ID serves as the execution ID
   return {
@@ -410,11 +390,6 @@ export async function pollBackgroundAgent(
 
     // Cast sandbox for SDK version compatibility
     // Must pass full session options when reattaching - SDK recreates the provider
-    console.log("[agent-session] pollBackgroundAgent:attach", {
-      backgroundSessionId,
-      repoPath: options.repoPath,
-      model: options.model,
-    })
 
     const bgSession = await sdkGetBackgroundSession({
       sandbox: sandbox as unknown as NonNullable<BackgroundSessionOptions['sandbox']>,
@@ -435,14 +410,6 @@ export async function pollBackgroundAgent(
     // Build content, tool calls, and content blocks from ALL accumulated events
     const { content, toolCalls, contentBlocks } = buildContentBlocks(allEvents)
 
-    console.log("[agent-session] pollBackgroundAgent:events", {
-      backgroundSessionId,
-      newEventCount: newEvents.length,
-      totalEventCount: allEvents.length,
-      hasSessionId: !!sessionId,
-      isRunning,
-    })
-
     // Persist session ID if received
     if (sessionId) {
       await persistSessionId(sandbox, sessionId)
@@ -457,14 +424,6 @@ export async function pollBackgroundAgent(
     if (isCompleted) {
       backgroundSessionEvents.delete(backgroundSessionId)
     }
-
-    console.log("[agent-session] pollBackgroundAgent:result", {
-      backgroundSessionId,
-      status: isCompleted ? "completed" : "running",
-      contentLength: content.length,
-      toolCallCount: toolCalls.length,
-      hasSessionId: !!sessionId,
-    })
 
     return {
       status: isCompleted ? "completed" : "running",
