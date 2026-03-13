@@ -21,6 +21,7 @@ export async function GET() {
             anthropicAuthToken: true,
             openaiApiKey: true,
             openrouterApiKey: true,
+            daytonaApiKey: true,
             sandboxAutoStopInterval: true,
           },
         },
@@ -62,6 +63,7 @@ export async function GET() {
           hasAnthropicAuthToken: !!user.credentials.anthropicAuthToken,
           hasOpenaiApiKey: !!user.credentials.openaiApiKey,
           hasOpenrouterApiKey: !!user.credentials.openrouterApiKey,
+          hasDaytonaApiKey: !!user.credentials.daytonaApiKey,
           sandboxAutoStopInterval: user.credentials.sandboxAutoStopInterval,
         }
       : null

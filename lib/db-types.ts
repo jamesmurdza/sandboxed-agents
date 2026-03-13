@@ -60,6 +60,7 @@ export interface UserCredentials {
   hasAnthropicAuthToken: boolean
   hasOpenaiApiKey: boolean
   hasOpenrouterApiKey: boolean
+  hasDaytonaApiKey: boolean
   sandboxAutoStopInterval?: number
 }
 

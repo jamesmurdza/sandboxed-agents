@@ -78,6 +78,9 @@ model UserCredentials {
   // Encrypted OpenRouter credentials (for OpenCode agents with OpenRouter models)
   openrouterApiKey String? @db.Text
 
+  // Custom Daytona API key (replaces platform key, clears all sandboxes when changed)
+  daytonaApiKey String? @db.Text
+
   // Sandbox settings
   sandboxAutoStopInterval Int @default(5) // 5-20 minutes
 

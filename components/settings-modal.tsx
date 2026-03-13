@@ -1,10 +1,9 @@
 "use client"
 
 import { cn } from "@/lib/utils"
-import { X, Terminal, Copy, Check, Loader2, Clock, Bot, Server, Key } from "lucide-react"
+import { X, Terminal, Copy, Check, Loader2, Clock, Bot, Server, Key, ExternalLink, AlertTriangle } from "lucide-react"
 import { useState, useEffect } from "react"
 import { Input } from "@/components/ui/input"
-import type { AnthropicAuthType } from "@/lib/types"
 
 type SettingsTab = "agents" | "sandboxes"
 
@@ -17,6 +16,7 @@ interface SettingsModalProps {
     hasAnthropicAuthToken: boolean
     hasOpenaiApiKey: boolean
     hasOpenrouterApiKey: boolean
+    hasDaytonaApiKey: boolean
     sandboxAutoStopInterval?: number
   } | null
   onCredentialsUpdate: () => void
@@ -25,9 +25,8 @@ interface SettingsModalProps {
 export function SettingsModal({ open, onClose, credentials, onCredentialsUpdate }: SettingsModalProps) {
   const [activeTab, setActiveTab] = useState<SettingsTab>("agents")
 
-  // Anthropic auth state
+  // Anthropic credentials (separate API key and subscription)
   const [anthropicApiKey, setAnthropicApiKey] = useState("")
-  const [anthropicAuthType, setAnthropicAuthType] = useState<AnthropicAuthType>("api-key")
   const [anthropicAuthToken, setAnthropicAuthToken] = useState("")
 
   // Other API keys
@@ -37,43 +36,53 @@ export function SettingsModal({ open, onClose, credentials, onCredentialsUpdate 
   // Sandbox settings
   const [sandboxAutoStopInterval, setSandboxAutoStopInterval] = useState(5)
   const [initialAutoStopInterval, setInitialAutoStopInterval] = useState(5)
+  const [daytonaApiKey, setDaytonaApiKey] = useState("")
 
   // UI state
   const [copied, setCopied] = useState(false)
   const [isSaving, setIsSaving] = useState(false)
   const [saveStatus, setSaveStatus] = useState<{ message: string; isError: boolean } | null>(null)
+  const [showDaytonaWarning, setShowDaytonaWarning] = useState(false)
 
   // Sync form state when modal opens
   useEffect(() => {
     if (open) {
-      // Set auth type from credentials but clear input fields
-      setAnthropicAuthType((credentials?.anthropicAuthType as AnthropicAuthType) ?? "api-key")
       setAnthropicApiKey("")
       setAnthropicAuthToken("")
       setOpenaiApiKey("")
       setOpenrouterApiKey("")
+      setDaytonaApiKey("")
       const interval = credentials?.sandboxAutoStopInterval ?? 5
       setSandboxAutoStopInterval(interval)
       setInitialAutoStopInterval(interval)
       setSaveStatus(null)
+      setShowDaytonaWarning(false)
     }
   }, [open, credentials])
 
   if (!open) return null
 
   async function handleSave() {
-    const newApiKey = anthropicApiKey.trim()
+    const newAnthropicKey = anthropicApiKey.trim()
     const newAuthToken = anthropicAuthToken.trim()
     const newOpenaiKey = openaiApiKey.trim()
     const newOpenrouterKey = openrouterApiKey.trim()
+    const newDaytonaKey = daytonaApiKey.trim()
     const autoStopChanged = sandboxAutoStopInterval !== initialAutoStopInterval
+
+    // Check if Daytona key is being changed and show warning
+    if (newDaytonaKey && !showDaytonaWarning) {
+      setShowDaytonaWarning(true)
+      return
+    }
 
     // Check if there's anything to save - only send non-empty values
     const hasAnyChanges =
-      newApiKey ||
+      newAnthropicKey ||
       newAuthToken ||
       newOpenaiKey ||
       newOpenrouterKey ||
+      newDaytonaKey ||
       autoStopChanged
 
     if (!hasAnyChanges) {
@@ -86,13 +95,11 @@ export function SettingsModal({ open, onClose, credentials, onCredentialsUpdate 
 
     try {
       // Build payload with only non-empty values to avoid overwriting existing keys
-      const payload: Record<string, unknown> = {
-        anthropicAuthType,
-      }
+      const payload: Record<string, unknown> = {}
 
       // Only include credentials that have been entered (non-empty)
-      if (newApiKey) {
-        payload.anthropicApiKey = newApiKey
+      if (newAnthropicKey) {
+        payload.anthropicApiKey = newAnthropicKey
       }
       if (newAuthToken) {
         payload.anthropicAuthToken = newAuthToken
@@ -102,6 +109,9 @@ export function SettingsModal({ open, onClose, credentials, onCredentialsUpdate 
       }
       if (newOpenrouterKey) {
         payload.openrouterApiKey = newOpenrouterKey
+      }
+      if (newDaytonaKey) {
+        payload.daytonaApiKey = newDaytonaKey
       }
       if (autoStopChanged) {
         payload.sandboxAutoStopInterval = sandboxAutoStopInterval
@@ -210,91 +220,99 @@ export function SettingsModal({ open, onClose, credentials, onCredentialsUpdate 
         <div className="flex flex-col gap-4 px-4 sm:px-5 py-4 overflow-y-auto">
           {activeTab === "agents" && (
             <>
-              {/* Anthropic Auth */}
+              {/* Anthropic API Key */}
               <div className="flex flex-col gap-1.5">
-                <div className="flex items-center gap-2">
-                  <Terminal className="h-3.5 w-3.5 text-muted-foreground" />
-                  <label className="text-xs font-medium text-foreground">Anthropic Authentication</label>
-                </div>
-                <div className="flex rounded-md border border-border bg-secondary p-0.5">
-                  <button
-                    type="button"
-                    onClick={() => setAnthropicAuthType("api-key")}
-                    className={cn(
-                      "flex-1 rounded px-3 py-1 text-xs font-medium transition-colors cursor-pointer",
-                      anthropicAuthType === "api-key"
-                        ? "bg-background text-foreground shadow-sm"
-                        : "text-muted-foreground hover:text-foreground"
-                    )}
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Terminal className="h-3.5 w-3.5 text-muted-foreground" />
+                    <label className="text-xs font-medium text-foreground">Anthropic API Key</label>
+                  </div>
+                  <a
+                    href="https://console.anthropic.com/settings/keys"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex items-center gap-1 text-[10px] text-muted-foreground hover:text-foreground transition-colors"
                   >
-                    API Key
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setAnthropicAuthType("claude-max")}
-                    className={cn(
-                      "flex-1 rounded px-3 py-1 text-xs font-medium transition-colors cursor-pointer",
-                      anthropicAuthType === "claude-max"
-                        ? "bg-background text-foreground shadow-sm"
-                        : "text-muted-foreground hover:text-foreground"
-                    )}
-                  >
-                    Subscription
-                  </button>
+                    Get API key <ExternalLink className="h-2.5 w-2.5" />
+                  </a>
                 </div>
-                {anthropicAuthType === "api-key" ? (
-                  <>
-                    <Input
-                      type="password"
-                      placeholder={credentials?.hasAnthropicApiKey ? "••••••••••••••••" : "sk-ant-..."}
-                      value={anthropicApiKey}
-                      onChange={(e) => setAnthropicApiKey(e.target.value)}
-                      className="h-9 bg-secondary border-border text-xs font-mono placeholder:text-muted-foreground/40"
-                    />
-                    <p className="text-[11px] text-muted-foreground">
-                      Used by Claude Code agent inside sandboxes
-                      {credentials?.hasAnthropicApiKey && (
-                        <span className="text-green-500 ml-1">• Key saved</span>
-                      )}
-                    </p>
-                  </>
-                ) : (
-                  <>
-                    <textarea
-                      placeholder={credentials?.hasAnthropicAuthToken ? "••••••••••••••••" : '{"claudeAiOauth":{"token_type":"bearer",...}}'}
-                      value={anthropicAuthToken}
-                      onChange={(e) => setAnthropicAuthToken(e.target.value)}
-                      rows={3}
-                      className="w-full rounded-md bg-secondary border border-border px-3 py-2 text-xs font-mono placeholder:text-muted-foreground/40 resize-none focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-                    />
-                    <p className="text-[11px] text-muted-foreground">
-                      Paste the output of:{" "}
-                      <code
-                        className="text-[10px] cursor-pointer"
-                        onClick={() => {
-                          navigator.clipboard.writeText('security find-generic-password -s "Claude Code-credentials" -w')
-                          setCopied(true)
-                          setTimeout(() => setCopied(false), 1500)
-                        }}
-                      >
-                        {copied
-                          ? <Check className="inline h-2.5 w-2.5 text-green-500 mr-1 align-middle" />
-                          : <Copy className="inline h-2.5 w-2.5 text-muted-foreground/60 mr-1 align-middle" />}
-                        security find-generic-password -s &quot;Claude Code-credentials&quot; -w
-                      </code>
-                      {credentials?.hasAnthropicAuthToken && (
-                        <span className="text-green-500 ml-1">• Token saved</span>
-                      )}
-                    </p>
-                  </>
-                )}
+                <Input
+                  type="password"
+                  placeholder={credentials?.hasAnthropicApiKey ? "••••••••••••••••" : "sk-ant-..."}
+                  value={anthropicApiKey}
+                  onChange={(e) => setAnthropicApiKey(e.target.value)}
+                  className="h-9 bg-secondary border-border text-xs font-mono placeholder:text-muted-foreground/40"
+                />
+                <p className="text-[11px] text-muted-foreground">
+                  Used by Claude Code and OpenCode agents for Anthropic models
+                  {credentials?.hasAnthropicApiKey && (
+                    <span className="text-green-500 ml-1">• Key saved</span>
+                  )}
+                </p>
+              </div>
+
+              {/* Claude Subscription (Max) */}
+              <div className="flex flex-col gap-1.5 pt-2 border-t border-border">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Terminal className="h-3.5 w-3.5 text-muted-foreground" />
+                    <label className="text-xs font-medium text-foreground">Claude Subscription</label>
+                  </div>
+                  <a
+                    href="https://claude.ai/settings/billing"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex items-center gap-1 text-[10px] text-muted-foreground hover:text-foreground transition-colors"
+                  >
+                    Manage subscription <ExternalLink className="h-2.5 w-2.5" />
+                  </a>
+                </div>
+                <textarea
+                  placeholder={credentials?.hasAnthropicAuthToken ? "••••••••••••••••" : '{"claudeAiOauth":{"token_type":"bearer",...}}'}
+                  value={anthropicAuthToken}
+                  onChange={(e) => setAnthropicAuthToken(e.target.value)}
+                  rows={3}
+                  className="w-full rounded-md bg-secondary border border-border px-3 py-2 text-xs font-mono placeholder:text-muted-foreground/40 resize-none focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                />
+                <p className="text-[11px] text-muted-foreground">
+                  Paste the output of:{" "}
+                  <code
+                    className="text-[10px] cursor-pointer"
+                    onClick={() => {
+                      navigator.clipboard.writeText('security find-generic-password -s "Claude Code-credentials" -w')
+                      setCopied(true)
+                      setTimeout(() => setCopied(false), 1500)
+                    }}
+                  >
+                    {copied
+                      ? <Check className="inline h-2.5 w-2.5 text-green-500 mr-1 align-middle" />
+                      : <Copy className="inline h-2.5 w-2.5 text-muted-foreground/60 mr-1 align-middle" />}
+                    security find-generic-password -s &quot;Claude Code-credentials&quot; -w
+                  </code>
+                  {credentials?.hasAnthropicAuthToken && (
+                    <span className="text-green-500 ml-1">• Token saved</span>
+                  )}
+                </p>
+                <p className="text-[10px] text-muted-foreground/70">
+                  Claude Code agent only. Not compatible with OpenCode agent.
+                </p>
               </div>
 
               {/* OpenAI API Key */}
               <div className="flex flex-col gap-1.5 pt-2 border-t border-border">
-                <div className="flex items-center gap-2">
-                  <Key className="h-3.5 w-3.5 text-muted-foreground" />
-                  <label className="text-xs font-medium text-foreground">OpenAI API Key</label>
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Key className="h-3.5 w-3.5 text-muted-foreground" />
+                    <label className="text-xs font-medium text-foreground">OpenAI API Key</label>
+                  </div>
+                  <a
+                    href="https://platform.openai.com/api-keys"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex items-center gap-1 text-[10px] text-muted-foreground hover:text-foreground transition-colors"
+                  >
+                    Get API key <ExternalLink className="h-2.5 w-2.5" />
+                  </a>
                 </div>
                 <Input
                   type="password"
@@ -313,9 +331,19 @@ export function SettingsModal({ open, onClose, credentials, onCredentialsUpdate 
 
               {/* OpenRouter API Key */}
               <div className="flex flex-col gap-1.5 pt-2 border-t border-border">
-                <div className="flex items-center gap-2">
-                  <Key className="h-3.5 w-3.5 text-muted-foreground" />
-                  <label className="text-xs font-medium text-foreground">OpenRouter API Key</label>
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Key className="h-3.5 w-3.5 text-muted-foreground" />
+                    <label className="text-xs font-medium text-foreground">OpenRouter API Key</label>
+                  </div>
+                  <a
+                    href="https://openrouter.ai/keys"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex items-center gap-1 text-[10px] text-muted-foreground hover:text-foreground transition-colors"
+                  >
+                    Get API key <ExternalLink className="h-2.5 w-2.5" />
+                  </a>
                 </div>
                 <Input
                   type="password"
@@ -336,6 +364,23 @@ export function SettingsModal({ open, onClose, credentials, onCredentialsUpdate 
 
           {activeTab === "sandboxes" && (
             <>
+              {/* Info about Daytona */}
+              <div className="flex items-start gap-2 p-3 rounded-lg bg-secondary/50 border border-border">
+                <Server className="h-4 w-4 text-muted-foreground mt-0.5 shrink-0" />
+                <p className="text-[11px] text-muted-foreground leading-relaxed">
+                  Sandboxes are powered by{" "}
+                  <a
+                    href="https://www.daytona.io"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-foreground hover:underline"
+                  >
+                    Daytona
+                  </a>
+                  . Each agent runs in an isolated cloud development environment.
+                </p>
+              </div>
+
               {/* Sandbox Auto-Stop */}
               <div className="flex flex-col gap-1.5">
                 <div className="flex items-center gap-2">
@@ -356,6 +401,56 @@ export function SettingsModal({ open, onClose, credentials, onCredentialsUpdate 
                 <p className="text-[11px] text-muted-foreground">
                   Sandboxes will auto-stop after {sandboxAutoStopInterval} minutes of inactivity
                 </p>
+              </div>
+
+              {/* Custom Daytona API Key */}
+              <div className="flex flex-col gap-1.5 pt-2 border-t border-border">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Key className="h-3.5 w-3.5 text-muted-foreground" />
+                    <label className="text-xs font-medium text-foreground">Custom Daytona API Key</label>
+                    <span className="text-[10px] text-muted-foreground/70">(Optional)</span>
+                  </div>
+                  <a
+                    href="https://app.daytona.io/dashboard/keys"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex items-center gap-1 text-[10px] text-muted-foreground hover:text-foreground transition-colors"
+                  >
+                    Get API key <ExternalLink className="h-2.5 w-2.5" />
+                  </a>
+                </div>
+                <Input
+                  type="password"
+                  placeholder={credentials?.hasDaytonaApiKey ? "••••••••••••••••" : "Leave empty to use platform key"}
+                  value={daytonaApiKey}
+                  onChange={(e) => {
+                    setDaytonaApiKey(e.target.value)
+                    setShowDaytonaWarning(false)
+                  }}
+                  className="h-9 bg-secondary border-border text-xs font-mono placeholder:text-muted-foreground/40"
+                />
+                <p className="text-[11px] text-muted-foreground">
+                  Use your own Daytona account for sandboxes
+                  {credentials?.hasDaytonaApiKey && (
+                    <span className="text-green-500 ml-1">• Custom key active</span>
+                  )}
+                </p>
+
+                {/* Warning when changing Daytona key */}
+                {showDaytonaWarning && (
+                  <div className="flex items-start gap-2 p-3 rounded-lg bg-destructive/10 border border-destructive/30 mt-2">
+                    <AlertTriangle className="h-4 w-4 text-destructive mt-0.5 shrink-0" />
+                    <div className="flex flex-col gap-2">
+                      <p className="text-[11px] text-destructive font-medium">
+                        Warning: Changing your Daytona API key will delete all existing sandboxes and their conversation history.
+                      </p>
+                      <p className="text-[10px] text-muted-foreground">
+                        Click Save again to confirm this action.
+                      </p>
+                    </div>
+                  </div>
+                )}
               </div>
             </>
           )}
@@ -388,9 +483,14 @@ export function SettingsModal({ open, onClose, credentials, onCredentialsUpdate 
             <button
               onClick={handleSave}
               disabled={isSaving}
-              className="cursor-pointer rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed"
+              className={cn(
+                "cursor-pointer rounded-md px-3 py-1.5 text-xs font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed",
+                showDaytonaWarning
+                  ? "bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                  : "bg-primary text-primary-foreground hover:bg-primary/90"
+              )}
             >
-              {isSaving ? "Saving..." : "Save"}
+              {isSaving ? "Saving..." : showDaytonaWarning ? "Confirm & Save" : "Save"}
             </button>
           </div>
         </div>

@@ -23,6 +23,7 @@ export interface DecryptedCredentials {
   anthropicAuthType: AnthropicAuthType
   openaiApiKey?: string
   openrouterApiKey?: string
+  daytonaApiKey?: string
 }
 
 export type SandboxStatus = BranchStatus
@@ -44,6 +45,7 @@ export interface SandboxWithCredentials {
       anthropicAuthType: string | null
       openaiApiKey: string | null
       openrouterApiKey: string | null
+      daytonaApiKey: string | null
     } | null
   }
   branch: {
@@ -221,6 +223,7 @@ export function decryptUserCredentials(
     anthropicAuthType: string | null
     openaiApiKey: string | null
     openrouterApiKey: string | null
+    daytonaApiKey: string | null
   } | null
 ): DecryptedCredentials {
   const anthropicAuthType = (credentials?.anthropicAuthType || "api-key") as AnthropicAuthType
@@ -229,6 +232,7 @@ export function decryptUserCredentials(
   let anthropicAuthToken: string | undefined
   let openaiApiKey: string | undefined
   let openrouterApiKey: string | undefined
+  let daytonaApiKey: string | undefined
 
   if (credentials?.anthropicApiKey) {
     anthropicApiKey = decrypt(credentials.anthropicApiKey)
@@ -242,6 +246,9 @@ export function decryptUserCredentials(
   if (credentials?.openrouterApiKey) {
     openrouterApiKey = decrypt(credentials.openrouterApiKey)
   }
+  if (credentials?.daytonaApiKey) {
+    daytonaApiKey = decrypt(credentials.daytonaApiKey)
+  }
 
   return {
     anthropicApiKey,
@@ -249,6 +256,7 @@ export function decryptUserCredentials(
     anthropicAuthType,
     openaiApiKey,
     openrouterApiKey,
+    daytonaApiKey,
   }
 }
 
