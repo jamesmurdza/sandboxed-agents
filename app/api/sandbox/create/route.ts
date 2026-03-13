@@ -1,6 +1,6 @@
 import { Daytona } from "@daytonaio/sdk"
 import { prisma } from "@/lib/prisma"
-import { checkQuota } from "@/lib/quota"
+import { getQuota } from "@/lib/quota"
 import { generateSandboxName } from "@/lib/sandbox-utils"
 import {
   requireAuth,
@@ -30,7 +30,7 @@ export async function POST(req: Request) {
   }
 
   // 2. Check quota
-  const quota = await checkQuota(userId)
+  const quota = await getQuota(userId)
   if (!quota.allowed) {
     return Response.json(
       {
