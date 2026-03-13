@@ -29,6 +29,7 @@ export function useExecutionPolling({
   streamingMessageIdRef,
 }: UseExecutionPollingOptions) {
   const pollingRef = useRef<NodeJS.Timeout | null>(null)
+  const eventSourceRef = useRef<EventSource | null>(null)
   const currentExecutionIdRef = useRef<string | null>(null)
   const currentMessageIdRef = useRef<string | null>(null)
   const startingCommitRef = useRef<string | null>(branch.startCommit || null)
@@ -59,6 +60,10 @@ export function useExecutionPolling({
   useEffect(() => {
     return () => {
       // Close any active SSE stream and clear timers.
+      if (eventSourceRef.current) {
+        eventSourceRef.current.close()
+        eventSourceRef.current = null
+      }
       if (pollingRef.current) {
         clearInterval(pollingRef.current)
         pollingRef.current = null
@@ -93,10 +98,30 @@ export function useExecutionPolling({
       url.searchParams.set("lastEventId", "0")
 
       const eventSource = new EventSource(url.toString())
+      eventSourceRef.current = eventSource
+
+      console.log("[useExecutionPolling] SSE connect", {
+        executionId,
+        messageId,
+        url: url.toString(),
+      })
+
+      eventSource.onopen = () => {
+        console.log("[useExecutionPolling] SSE open", {
+          executionId,
+          messageId,
+          readyState: eventSource.readyState,
+        })
+      }
 
       // Handle content snapshot events (default message events).
       eventSource.onmessage = (event) => {
         try {
+          console.log("[useExecutionPolling] SSE message raw", {
+            lastEventId: event.lastEventId,
+            dataPreview: event.data?.slice?.(0, 200),
+          })
+
           const data = JSON.parse(event.data) as {
             content?: string
             toolCalls?: Array<{ tool: string; summary: string }>
@@ -155,6 +180,10 @@ export function useExecutionPolling({
       // Handle completion events.
       eventSource.addEventListener("complete", async (event) => {
         try {
+          console.log("[useExecutionPolling] SSE complete", {
+            data: (event as MessageEvent).data,
+          })
+
           const data = JSON.parse((event as MessageEvent).data) as {
             status?: string
           }
@@ -264,7 +293,12 @@ export function useExecutionPolling({
       // Handle error events from the server.
       eventSource.addEventListener("error", (event) => {
         try {
-          const data = JSON.parse((event as MessageEvent).data) as {
+          const msgEvent = event as MessageEvent
+          if (!msgEvent.data) {
+            return
+          }
+
+          const data = JSON.parse(String(msgEvent.data)) as {
             message?: string
           }
 
@@ -281,8 +315,16 @@ export function useExecutionPolling({
       })
 
       // Network errors / disconnects – allow EventSource to auto-reconnect.
-      eventSource.onerror = () => {
-        // The browser will reconnect automatically; no-op here.
+      eventSource.onerror = (event) => {
+        // Only log when the stream is actually closed; transient errors during
+        // reconnect are noisy and not actionable.
+        if (eventSource.readyState === EventSource.CLOSED) {
+          console.error("[useExecutionPolling] SSE closed", {
+            executionId,
+            messageId,
+            event,
+          })
+        }
       }
     }
 
@@ -307,6 +349,11 @@ export function useExecutionPolling({
     if (pendingPollTimeoutRef.current) {
       clearTimeout(pendingPollTimeoutRef.current)
       pendingPollTimeoutRef.current = null
+    }
+
+    if (eventSourceRef.current) {
+      eventSourceRef.current.close()
+      eventSourceRef.current = null
     }
 
     if (currentMessageIdRef.current) {

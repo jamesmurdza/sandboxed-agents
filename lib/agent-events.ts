@@ -15,7 +15,18 @@ import { prisma } from "@/lib/prisma"
 // In-memory buffers for batching writes
 const eventBuffers = new Map<string, Array<{ type: string; data: object }>>()
 const flushIntervals = new Map<string, NodeJS.Timeout>()
-const eventCounters = new Map<string, number>()
+
+function getAgentEventDelegate() {
+  const delegate = (prisma as { agentEvent?: typeof prisma.agentExecution }).agentEvent
+  if (!delegate) {
+    throw new Error(
+      "Prisma client is missing AgentEvent model. Run: npx prisma generate"
+    )
+  }
+  // Loosely typed to avoid coupling to the generated Prisma client types.
+  // At runtime this is the AgentEvent delegate.
+  return delegate as any
+}
 
 /**
  * Append an event to the execution's event stream.
@@ -26,19 +37,13 @@ export async function appendEvent(
   type: string,
   data: object
 ): Promise<number> {
+  console.log("[agent-events] appendEvent start", { executionId, type })
+
   // Get or create buffer
   let buffer = eventBuffers.get(executionId)
   if (!buffer) {
     buffer = []
     eventBuffers.set(executionId, buffer)
-
-    // Initialize counter from DB
-    const lastEvent = await prisma.agentEvent.findFirst({
-      where: { executionId },
-      orderBy: { eventIndex: "desc" },
-      select: { eventIndex: true },
-    })
-    eventCounters.set(executionId, lastEvent?.eventIndex ?? 0)
 
     // Start flush interval (every 500ms)
     const interval = setInterval(() => {
@@ -47,18 +52,22 @@ export async function appendEvent(
     flushIntervals.set(executionId, interval)
   }
 
-  buffer.push({ type, data })
+  console.log("[agent-events] appendEvent push", {
+    executionId,
+    type,
+    bufferedBefore: buffer.length,
+  })
 
-  // Increment counter and get this event's index
-  const currentCount = eventCounters.get(executionId) ?? 0
-  const newIndex = currentCount + buffer.length
+  buffer.push({ type, data })
 
   // Flush immediately if buffer is large
   if (buffer.length >= 10) {
     await flushEvents(executionId)
   }
 
-  return newIndex
+  // We don't guarantee an exact index here; SSE consumers rely on the
+  // monotonically increasing eventIndex stored in the database.
+  return 0
 }
 
 /**
@@ -69,25 +78,47 @@ export async function flushEvents(executionId: string): Promise<void> {
   const buffer = eventBuffers.get(executionId)
   if (!buffer || buffer.length === 0) return
 
-  // Get base index for this batch
-  const baseIndex = (eventCounters.get(executionId) ?? 0) + 1
+  console.log("[agent-events] flushEvents start", {
+    executionId,
+    bufferLength: buffer.length,
+  })
 
   // Batch insert
+  const agentEvent = getAgentEventDelegate()
   try {
-    await prisma.agentEvent.createMany({
+    // Always compute the base index from the database to avoid race conditions
+    // across processes. This, combined with skipDuplicates, prevents unique
+    // constraint violations when two workers flush around the same time.
+    const lastEvent = await agentEvent.findFirst({
+      where: { executionId },
+      orderBy: { eventIndex: "desc" },
+      select: { eventIndex: true },
+    })
+    const baseIndex = (lastEvent?.eventIndex ?? 0) + 1
+
+    console.log("[agent-events] flushEvents computed baseIndex", {
+      executionId,
+      lastEventIndex: lastEvent?.eventIndex ?? 0,
+      baseIndex,
+    })
+
+    await agentEvent.createMany({
       data: buffer.map((event, i) => ({
         executionId,
         eventIndex: baseIndex + i,
         type: event.type,
         data: event.data,
       })),
+      skipDuplicates: true,
     })
-
-    // Update counter
-    eventCounters.set(executionId, baseIndex + buffer.length - 1)
 
     // Clear buffer
     buffer.length = 0
+
+    console.log("[agent-events] flushEvents done", {
+      executionId,
+      inserted: buffer.length,
+    })
   } catch (error) {
     console.error(`Failed to flush events for execution ${executionId}:`, error)
     throw error
@@ -105,7 +136,8 @@ export async function getEvents(
   // First flush any pending events to ensure consistency
   await flushEvents(executionId)
 
-  const events = await prisma.agentEvent.findMany({
+  const agentEvent = getAgentEventDelegate()
+  const events = await agentEvent.findMany({
     where: {
       executionId,
       eventIndex: { gt: afterIndex },
@@ -126,16 +158,9 @@ export async function getEvents(
  * Returns 0 if no events exist.
  */
 export async function getLatestEventIndex(executionId: string): Promise<number> {
-  // Check buffer first
-  const bufferCount = eventBuffers.get(executionId)?.length ?? 0
-  const counterValue = eventCounters.get(executionId) ?? 0
-
-  if (bufferCount > 0 || counterValue > 0) {
-    return counterValue + bufferCount
-  }
-
   // Fall back to DB
-  const lastEvent = await prisma.agentEvent.findFirst({
+  const agentEvent = getAgentEventDelegate()
+  const lastEvent = await agentEvent.findFirst({
     where: { executionId },
     orderBy: { eventIndex: "desc" },
     select: { eventIndex: true },
@@ -158,11 +183,11 @@ export async function cleanupEvents(executionId: string): Promise<void> {
 
   // Clear buffer and counter
   eventBuffers.delete(executionId)
-  eventCounters.delete(executionId)
 
   // Delete from DB (events are preserved in final message content)
   try {
-    await prisma.agentEvent.deleteMany({
+    const agentEvent = getAgentEventDelegate()
+    await agentEvent.deleteMany({
       where: { executionId },
     })
   } catch (error) {
@@ -177,7 +202,8 @@ export async function hasEvents(executionId: string): Promise<boolean> {
   const bufferCount = eventBuffers.get(executionId)?.length ?? 0
   if (bufferCount > 0) return true
 
-  const count = await prisma.agentEvent.count({
+  const agentEvent = getAgentEventDelegate()
+  const count = await agentEvent.count({
     where: { executionId },
   })
 

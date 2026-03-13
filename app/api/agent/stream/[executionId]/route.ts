@@ -10,21 +10,27 @@ export const maxDuration = 55 // seconds – close before Vercel 60s timeout
 
 export async function GET(
   req: Request,
-  { params }: { params: { executionId: string } },
+  { params }: { params: Promise<{ executionId: string }> },
 ) {
   const auth = await requireAuth()
   if (isAuthError(auth)) return auth
 
+  const { executionId: executionIdParam } = await params
   const url = new URL(req.url)
   const rawLastEventId = url.searchParams.get("lastEventId")
   const lastEventId = Number.isFinite(Number(rawLastEventId))
     ? Number(rawLastEventId)
     : 0
 
+  console.log("[agent/stream] GET start", {
+    executionIdParam,
+    lastEventId,
+  })
+
   // Look up the AgentExecution by its external executionId (SDK id) so we keep
   // the existing API contract with /api/agent/execute.
   const execution = await prisma.agentExecution.findFirst({
-    where: { executionId: params.executionId },
+    where: { executionId: executionIdParam },
     include: {
       message: {
         include: {
@@ -58,14 +64,15 @@ export async function GET(
       const encoder = new TextEncoder()
 
       const send = (id: number, type: string, data: unknown) => {
-        // For simplicity, we label all snapshot events as "content" and use a
-        // custom "complete" / "error" event type for lifecycle notifications.
-        const eventLines = [
-          `id: ${id}`,
-          type === "content" ? undefined : `event: ${type}`,
-          `data: ${JSON.stringify(data)}`,
-          "",
-        ].filter(Boolean) as string[]
+        // Default SSE "message" events (no explicit event name) are used for
+        // content snapshots so that EventSource.onmessage receives them.
+        // Named events are reserved for lifecycle notifications like "complete".
+        const eventLines: string[] = [`id: ${id}`]
+        if (type !== "content") {
+          eventLines.push(`event: ${type}`)
+        }
+        eventLines.push(`data: ${JSON.stringify(data)}`)
+        eventLines.push("")
 
         controller.enqueue(encoder.encode(eventLines.join("\n")))
       }
@@ -73,6 +80,11 @@ export async function GET(
       try {
         // Initial catch-up: send all events after lastIndex.
         const historicalEvents = await getEvents(agentExecutionId, lastIndex)
+        console.log("[agent/stream] historicalEvents", {
+          agentExecutionId,
+          count: historicalEvents.length,
+          fromIndex: lastIndex,
+        })
         for (const event of historicalEvents) {
           send(event.eventIndex, "content", event.data)
           lastIndex = event.eventIndex
@@ -98,11 +110,23 @@ export async function GET(
         for (;;) {
           if (Date.now() - startTime >= MAX_DURATION_MS) {
             // Client will resume from lastEventId on reconnect.
+            console.log("[agent/stream] timeout close", {
+              agentExecutionId,
+              lastIndex,
+            })
             controller.close()
             return
           }
 
           const newEvents = await getEvents(agentExecutionId, lastIndex)
+          if (newEvents.length > 0) {
+            console.log("[agent/stream] newEvents", {
+              agentExecutionId,
+              count: newEvents.length,
+              fromIndex: lastIndex,
+              toIndex: newEvents[newEvents.length - 1].eventIndex,
+            })
+          }
           for (const event of newEvents) {
             send(event.eventIndex, "content", event.data)
             lastIndex = event.eventIndex

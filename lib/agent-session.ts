@@ -392,6 +392,12 @@ export async function startBackgroundAgent(
   }
 }
 
+// In-memory cache for accumulated events per background session.
+// This is safe because pollBackgroundAgent is now only called from the
+// single-process agent poller (not per-request polling), so we don't rely on
+// this map for cross-instance state.
+const backgroundSessionEvents = new Map<string, Event[]>()
+
 export interface PollBackgroundOptions {
   repoPath: string
   previewUrlPattern?: string
@@ -432,10 +438,15 @@ export async function pollBackgroundAgent(
     })
 
     const isRunning = await bgSession.isRunning()
-    const { events, sessionId } = await bgSession.getEvents()
+    const { events: newEvents, sessionId } = await bgSession.getEvents()
 
-    // Build content, tool calls, and content blocks from just this batch of events.
-    const { content, toolCalls, contentBlocks } = buildContentBlocks(events)
+    // Accumulate events for this background session so we can build streaming
+    // content from the full history, not just the latest batch.
+    const cachedEvents = backgroundSessionEvents.get(backgroundSessionId) || []
+    const allEvents = [...cachedEvents, ...newEvents]
+    backgroundSessionEvents.set(backgroundSessionId, allEvents)
+
+    const { content, toolCalls, contentBlocks } = buildContentBlocks(allEvents)
 
     // Persist snapshot to AgentEvent for SSE streaming if execution id provided.
     // We store the full snapshot so SSE consumers can simply take the latest
@@ -463,7 +474,7 @@ export async function pollBackgroundAgent(
 
     // Check if we've received an 'end' event - this is more reliable than isRunning
     // since isRunning checks process state which may have a slight delay
-    const hasEndEvent = events.some(e => e.type === "end")
+    const hasEndEvent = allEvents.some(e => e.type === "end")
     const isCompleted = !isRunning || hasEndEvent
 
     return {
@@ -475,13 +486,15 @@ export async function pollBackgroundAgent(
       sessionId: sessionId || undefined,
     }
   } catch (err) {
+    // On transient errors, fall back to whatever we've accumulated so far.
+    const cachedEvents = backgroundSessionEvents.get(backgroundSessionId) || []
+    const { content, toolCalls, contentBlocks } = buildContentBlocks(cachedEvents)
+
     return {
       status: "error",
-      // For transient errors we don't attempt to reconstruct accumulated content here;
-      // callers can decide how to surface the error alongside any existing UI state.
-      content: "",
-      toolCalls: [],
-      contentBlocks: [],
+      content,
+      toolCalls,
+      contentBlocks,
       error: err instanceof Error ? err.message : "Unknown error polling background session",
     }
   }
