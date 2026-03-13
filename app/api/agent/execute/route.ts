@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/prisma"
 import { ensureSandboxReady } from "@/lib/sandbox-resume"
 import { startBackgroundAgent } from "@/lib/agent-session"
+import { startAgentPoller } from "@/lib/agent-poller"
 import {
   requireAuth,
   isAuthError,
@@ -114,11 +115,11 @@ export async function POST(req: Request) {
     )
 
     // 7. Create AgentExecution record with SDK's execution ID
-    await prisma.agentExecution.create({
+    const agentExecution = await prisma.agentExecution.create({
       data: {
         messageId,
         sandboxId,
-        // Use SDK's executionId as the unique DB identifier
+        // Use SDK's executionId as the unique identifier for lookups from the client.
         executionId,
         status: "running",
       },
@@ -132,7 +133,27 @@ export async function POST(req: Request) {
       })
     }
 
-    // 8. Update sandbox and branch status
+    // 8. Start a single background poller for this execution.
+    // This loop polls the Daytona background session and writes streaming
+    // snapshots into AgentEvent for SSE consumers, then marks the execution
+    // complete and updates message / branch / sandbox status.
+    startAgentPoller({
+      agentExecutionId: agentExecution.id,
+      sandbox,
+      backgroundSessionId,
+      repoPath,
+      previewUrlPattern:
+        previewUrlPattern || sandboxRecord.previewUrlPattern || undefined,
+      model,
+      env,
+      agent,
+    }).catch((error) => {
+      console.error("[agent/execute] failed to start agent poller", {
+        agentExecutionId: agentExecution.id,
+      }, error)
+    })
+
+    // 9. Update sandbox and branch status
     await updateSandboxAndBranchStatus(
       sandboxRecord.id,
       sandboxRecord.branch?.id,
@@ -140,7 +161,7 @@ export async function POST(req: Request) {
       { lastActiveAt: new Date() }
     )
 
-    // 9. Reset auto-stop timer
+    // 10. Reset auto-stop timer
     try {
       await sandbox.refreshActivity()
     } catch {
@@ -149,7 +170,8 @@ export async function POST(req: Request) {
 
     return Response.json({
       success: true,
-      // Return the unique AgentExecution.executionId so polling can look it up.
+      // Return the SDK executionId for backwards compatibility; the SSE
+      // endpoint maps this back to AgentExecution.id internally.
       executionId,
       messageId,
     })

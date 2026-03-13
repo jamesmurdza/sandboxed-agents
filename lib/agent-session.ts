@@ -26,6 +26,7 @@ import {
 import type { Sandbox as DaytonaSandbox } from "@daytonaio/sdk"
 import { type Agent, getProviderForAgent } from "@/lib/types"
 import { PATHS, SANDBOX_CONFIG } from "@/lib/constants"
+import { appendEvent } from "@/lib/agent-events"
 
 // =============================================================================
 // Types
@@ -401,6 +402,12 @@ export interface PollBackgroundOptions {
   model?: string
   env?: Record<string, string>
   agent?: Agent
+  /**
+   * Optional AgentExecution.id used for streaming snapshots into AgentEvent.
+   * When provided, each poll appends a "content" event to the DB so SSE
+   * consumers can stream from a shared event log.
+   */
+  agentExecutionId?: string
 }
 
 export async function pollBackgroundAgent(
@@ -438,6 +445,25 @@ export async function pollBackgroundAgent(
 
     // Build content, tool calls, and content blocks from ALL accumulated events
     const { content, toolCalls, contentBlocks } = buildContentBlocks(allEvents)
+
+    // Persist snapshot to AgentEvent for SSE streaming if execution id provided.
+    // We store the full snapshot so SSE consumers can simply take the latest
+    // event rather than reconstructing from low-level SDK events.
+    if (options.agentExecutionId) {
+      try {
+        await appendEvent(options.agentExecutionId, "content", {
+          content,
+          toolCalls,
+          contentBlocks,
+        })
+      } catch (error) {
+        console.error(
+          "[agent-session] failed to append agent event",
+          { agentExecutionId: options.agentExecutionId },
+          error,
+        )
+      }
+    }
 
     // Persist session ID if received
     if (sessionId) {

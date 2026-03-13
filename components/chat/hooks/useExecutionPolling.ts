@@ -58,6 +58,7 @@ export function useExecutionPolling({
   // Cleanup polling on unmount
   useEffect(() => {
     return () => {
+      // Close any active SSE stream and clear timers.
       if (pollingRef.current) {
         clearInterval(pollingRef.current)
         pollingRef.current = null
@@ -69,111 +70,109 @@ export function useExecutionPolling({
     }
   }, [])
 
-  // Start polling for execution status
+  // Start streaming execution status via SSE
   const startPolling = useCallback((messageId: string, executionId?: string) => {
-    // Clear any existing polling interval
-    if (pollingRef.current) {
-      clearInterval(pollingRef.current)
-      pollingRef.current = null
+    // Signal that streaming is starting (used by sync to avoid overwriting)
+    if (streamingMessageIdRef) {
+      streamingMessageIdRef.current = messageId
     }
+    currentMessageIdRef.current = messageId
 
-    // Clear any pending poll timeout (prevents double-start race condition)
-    if (pendingPollTimeoutRef.current) {
-      clearTimeout(pendingPollTimeoutRef.current)
-      pendingPollTimeoutRef.current = null
-    }
+    // Establish an EventSource connection to the SSE endpoint. We keep the
+    // existing "polling" terminology for backwards compatibility with the
+    // surrounding code.
+    const connect = () => {
+      if (!executionId) {
+        console.error("Missing executionId for SSE stream")
+        return
+      }
 
-    let notFoundRetries = 0
-    const MAX_NOT_FOUND_RETRIES = 10
+      const url = new URL(`/api/agent/stream/${executionId}`, window.location.origin)
+      // We always resume from the start for this message; the server streams
+      // only this execution's events.
+      url.searchParams.set("lastEventId", "0")
 
-    const poll = async () => {
-      try {
-        const res = await fetch("/api/agent/status", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ messageId, executionId }),
-        })
-        const data = await res.json()
+      const eventSource = new EventSource(url.toString())
 
-        if (!res.ok) {
-          if (res.status === 404 && data.error === "Execution not found") {
-            notFoundRetries++
-            console.warn(`Polling: Execution not found (attempt ${notFoundRetries}/${MAX_NOT_FOUND_RETRIES})`)
-            if (notFoundRetries >= MAX_NOT_FOUND_RETRIES) {
-              console.error("Polling error: Execution not found after max retries, stopping")
-              if (pollingRef.current) {
-                clearInterval(pollingRef.current)
-                pollingRef.current = null
-              }
-              currentExecutionIdRef.current = null
-              currentMessageIdRef.current = null
-              onUpdateBranch({ status: BRANCH_STATUS.IDLE })
-            }
-            return
+      // Handle content snapshot events (default message events).
+      eventSource.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data) as {
+            content?: string
+            toolCalls?: Array<{ tool: string; summary: string }>
+            contentBlocks?: Array<{ type: string; text?: string; toolCalls?: Array<{ tool: string; summary: string }> }>
           }
-          console.error("Polling error:", data.error)
-          return
-        }
 
-        notFoundRetries = 0
+          if (!data) return
 
-        // Update message content
-        if (data.content || (data.toolCalls && data.toolCalls.length > 0) || (data.contentBlocks && data.contentBlocks.length > 0)) {
-          const toolCallsWithIds = (data.toolCalls || []).map((tc: { tool: string; summary: string }, idx: number) => ({
-            id: `tc-${idx}`,
-            tool: tc.tool,
-            summary: tc.summary,
-            timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
-          }))
-          const contentBlocksWithIds = (data.contentBlocks || []).map((block: { type: string; text?: string; toolCalls?: Array<{ tool: string; summary: string }> }, blockIdx: number) => {
-            if (block.type === "tool_calls" && block.toolCalls) {
-              return {
-                type: "tool_calls" as const,
-                toolCalls: block.toolCalls.map((tc, tcIdx) => ({
-                  id: `tc-${blockIdx}-${tcIdx}`,
-                  tool: tc.tool,
-                  summary: tc.summary,
-                  timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
-                })),
-              }
-            }
-            return block
-          })
-          onUpdateMessage(messageId, {
-            content: data.content || "",
-            toolCalls: toolCallsWithIds,
-            contentBlocks: contentBlocksWithIds.length > 0 ? contentBlocksWithIds : undefined,
-          })
-        }
+          if (
+            data.content ||
+            (data.toolCalls && data.toolCalls.length > 0) ||
+            (data.contentBlocks && data.contentBlocks.length > 0)
+          ) {
+            const toolCallsWithIds = (data.toolCalls || []).map((tc, idx) => ({
+              id: `tc-${idx}`,
+              tool: tc.tool,
+              summary: tc.summary,
+              timestamp: new Date().toLocaleTimeString([], {
+                hour: "2-digit",
+                minute: "2-digit",
+              }),
+            }))
 
-        if (data.sessionId) {
-          onUpdateBranch({ sessionId: data.sessionId })
-        }
+            const contentBlocksWithIds = (data.contentBlocks || []).map(
+              (block, blockIdx) => {
+                if (block.type === "tool_calls" && block.toolCalls) {
+                  return {
+                    type: "tool_calls" as const,
+                    toolCalls: block.toolCalls.map((tc, tcIdx) => ({
+                      id: `tc-${blockIdx}-${tcIdx}`,
+                      tool: tc.tool,
+                      summary: tc.summary,
+                      timestamp: new Date().toLocaleTimeString([], {
+                        hour: "2-digit",
+                        minute: "2-digit",
+                      }),
+                    })),
+                  }
+                }
+                return block
+              },
+            )
 
-        // Check if completed or error
-        if (data.status === EXECUTION_STATUS.COMPLETED || data.status === EXECUTION_STATUS.ERROR) {
-          if (pollingRef.current) {
-            clearInterval(pollingRef.current)
-            pollingRef.current = null
+            onUpdateMessage(messageId, {
+              content: data.content || "",
+              toolCalls: toolCallsWithIds,
+              contentBlocks:
+                contentBlocksWithIds.length > 0 ? contentBlocksWithIds : undefined,
+            })
           }
+        } catch (err) {
+          console.error("Failed to parse SSE content event:", err)
+        }
+      }
+
+      // Handle completion events.
+      eventSource.addEventListener("complete", async (event) => {
+        try {
+          const data = JSON.parse((event as MessageEvent).data) as {
+            status?: string
+          }
+
           currentExecutionIdRef.current = null
           currentMessageIdRef.current = null
-          // Clear streaming signal so sync can resume normal behavior
           if (streamingMessageIdRef) {
             streamingMessageIdRef.current = null
           }
 
-          if (data.status === EXECUTION_STATUS.ERROR && data.error) {
-            onUpdateMessage(messageId, {
-              content: data.content ? `${data.content}\n\nError: ${data.error}` : `Error: ${data.error}`,
-            })
-          }
-
-          onUpdateBranch({ status: "idle", lastActivity: "now", lastActivityTs: Date.now() })
+          onUpdateBranch({
+            status: "idle",
+            lastActivity: "now",
+            lastActivityTs: Date.now(),
+          })
           onForceSave()
 
-          // Check for new commits - use refs to get latest branch name/sandboxId
-          // in case the branch was renamed during polling
+          // Preserve existing auto-commit / commit-detection behavior.
           const currentSandboxId = branchSandboxIdRef.current
           const currentBranchName = branchNameRef.current
           if (currentSandboxId) {
@@ -201,17 +200,27 @@ export function useExecutionPolling({
                   }),
                 })
                 const logData = await logRes.json()
-                const allCommits: { shortHash: string; message: string }[] = logData.commits || []
+                const allCommits: { shortHash: string; message: string }[] =
+                  logData.commits || []
 
-                const chatCommits = new Set(branchMessagesRef.current.filter((m) => m.commitHash).map((m) => m.commitHash))
-                const newCommits = allCommits.filter(c => !chatCommits.has(c.shortHash))
+                const chatCommits = new Set(
+                  branchMessagesRef.current
+                    .filter((m) => m.commitHash)
+                    .map((m) => m.commitHash),
+                )
+                const newCommits = allCommits.filter(
+                  (c) => !chatCommits.has(c.shortHash),
+                )
 
                 for (const c of [...newCommits].reverse()) {
                   onAddMessage({
                     id: generateId(),
                     role: "assistant",
                     content: "",
-                    timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+                    timestamp: new Date().toLocaleTimeString([], {
+                      hour: "2-digit",
+                      minute: "2-digit",
+                    }),
                     commitHash: c.shortHash,
                     commitMessage: c.message,
                   })
@@ -221,7 +230,9 @@ export function useExecutionPolling({
                   onCommitsDetected?.()
                 }
               }
-            } catch {}
+            } catch {
+              // Non-critical
+            }
           }
 
           // Play notification sound
@@ -234,26 +245,52 @@ export function useExecutionPolling({
             osc.frequency.value = 880
             osc.type = "sine"
             gain.gain.setValueAtTime(0.15, ctx.currentTime)
-            gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.3)
+            gain.gain.exponentialRampToValueAtTime(
+              0.001,
+              ctx.currentTime + 0.3,
+            )
             osc.start(ctx.currentTime)
             osc.stop(ctx.currentTime + 0.3)
-          } catch {}
+          } catch {
+            // Ignore audio errors
+          }
+
+          eventSource.close()
+        } catch (err) {
+          console.error("Failed to handle SSE complete event:", err)
         }
-      } catch (err) {
-        console.error("Polling failed:", err)
+      })
+
+      // Handle error events from the server.
+      eventSource.addEventListener("error", (event) => {
+        try {
+          const data = JSON.parse((event as MessageEvent).data) as {
+            message?: string
+          }
+
+          if (data?.message) {
+            onUpdateMessage(messageId, {
+              content: `Error: ${data.message}`,
+            })
+          }
+        } catch (err) {
+          console.error("Failed to handle SSE error event:", err)
+        } finally {
+          eventSource.close()
+        }
+      })
+
+      // Network errors / disconnects – allow EventSource to auto-reconnect.
+      eventSource.onerror = () => {
+        // The browser will reconnect automatically; no-op here.
       }
     }
 
-    // Signal that streaming is starting (used by sync to avoid overwriting)
-    if (streamingMessageIdRef) {
-      streamingMessageIdRef.current = messageId
-    }
-    currentMessageIdRef.current = messageId
-
+    // Slight delay to match previous polling behavior and avoid racing with
+    // immediate sync updates.
     pendingPollTimeoutRef.current = setTimeout(() => {
       pendingPollTimeoutRef.current = null
-      poll()
-      pollingRef.current = setInterval(poll, 500)
+      connect()
     }, 150)
   // Note: branch.sandboxId, branch.name, and branch.messages are accessed via refs to avoid stale closures
   // This is critical - including branch.messages in deps causes the callback to be recreated on every
@@ -264,11 +301,9 @@ export function useExecutionPolling({
 
   // Stop polling and update message
   const stopPolling = useCallback(() => {
-    if (pollingRef.current) {
-      clearInterval(pollingRef.current)
-      pollingRef.current = null
-    }
-
+    // There is no explicit SSE handle stored here; stopping simply marks the
+    // branch idle and appends a "[Stopped by user]" note to the current
+    // assistant message, matching previous UX.
     if (pendingPollTimeoutRef.current) {
       clearTimeout(pendingPollTimeoutRef.current)
       pendingPollTimeoutRef.current = null
