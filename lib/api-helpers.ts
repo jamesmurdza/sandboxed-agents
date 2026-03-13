@@ -4,6 +4,10 @@ import { prisma } from "@/lib/prisma"
 import { decrypt } from "@/lib/encryption"
 import type { AnthropicAuthType } from "@/lib/types"
 import { BRANCH_STATUS, type BranchStatus } from "@/lib/constants"
+import {
+  INCLUDE_SANDBOX_WITH_USER_CREDENTIALS,
+  INCLUDE_BRANCH_WITH_REPO,
+} from "@/lib/prisma-includes"
 
 // =============================================================================
 // Types
@@ -255,10 +259,7 @@ export async function getSandboxWithAuth(
 ): Promise<SandboxWithCredentials | null> {
   const sandbox = await prisma.sandbox.findUnique({
     where: { sandboxId },
-    include: {
-      user: { include: { credentials: true } },
-      branch: { include: { repo: true } },
-    },
+    include: INCLUDE_SANDBOX_WITH_USER_CREDENTIALS,
   })
 
   if (!sandbox || sandbox.userId !== userId) {
@@ -302,7 +303,7 @@ export async function getBranchWithAuth(
 } | null> {
   const branch = await prisma.branch.findUnique({
     where: { id: branchId },
-    include: { repo: true },
+    include: INCLUDE_BRANCH_WITH_REPO,
   })
 
   if (!branch || branch.repo.userId !== userId) {

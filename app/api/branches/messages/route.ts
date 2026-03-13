@@ -6,6 +6,7 @@ import {
   badRequest,
   notFound,
 } from "@/lib/api-helpers"
+import { INCLUDE_MESSAGE_WITH_BRANCH } from "@/lib/prisma-includes"
 
 // Prevent Next.js from caching this route - always fetch fresh data
 export const dynamic = "force-dynamic"
@@ -114,7 +115,7 @@ export async function PATCH(req: Request) {
   // Verify ownership through branch -> repo
   const message = await prisma.message.findUnique({
     where: { id: messageId },
-    include: { branch: { include: { repo: true } } },
+    include: INCLUDE_MESSAGE_WITH_BRANCH,
   })
 
   if (!message || message.branch.repo.userId !== userId) {

@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/prisma"
 import { requireAuth, isAuthError, badRequest, notFound } from "@/lib/api-helpers"
+import { INCLUDE_BRANCH_WITH_REPO } from "@/lib/prisma-includes"
 
 // POST endpoint for saving draft prompts (needed for sendBeacon on page unload)
 export async function POST(req: Request) {
@@ -16,7 +17,7 @@ export async function POST(req: Request) {
   // Verify ownership
   const branch = await prisma.branch.findUnique({
     where: { id: branchId },
-    include: { repo: true },
+    include: INCLUDE_BRANCH_WITH_REPO,
   })
 
   if (!branch || branch.repo.userId !== auth.userId) {

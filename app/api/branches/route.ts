@@ -10,6 +10,10 @@ import {
   isDaytonaKeyError,
 } from "@/lib/api-helpers"
 import { PATHS } from "@/lib/constants"
+import {
+  INCLUDE_BRANCH_WITH_MESSAGES,
+  INCLUDE_BRANCH_WITH_REPO_AND_SANDBOX,
+} from "@/lib/prisma-includes"
 import { Daytona } from "@daytonaio/sdk"
 
 export async function POST(req: Request) {
@@ -53,16 +57,7 @@ export async function POST(req: Request) {
       status: "idle",
       agent: "claude-code",
     },
-    include: {
-      sandbox: true,
-      messages: {
-        orderBy: { createdAt: "asc" },
-        take: 100, // Limit messages to prevent OOM on large conversations
-      },
-      _count: {
-        select: { messages: true }, // Include total count for pagination
-      },
-    },
+    include: INCLUDE_BRANCH_WITH_MESSAGES,
   })
 
   return Response.json({ branch })
@@ -109,10 +104,7 @@ export async function PATCH(req: Request) {
   // Verify ownership - need to query with sandbox for clearSession
   const branchWithSandbox = await prisma.branch.findUnique({
     where: { id: branchId },
-    include: {
-      repo: true,
-      sandbox: true,
-    },
+    include: INCLUDE_BRANCH_WITH_REPO_AND_SANDBOX,
   })
 
   if (!branchWithSandbox || branchWithSandbox.repo.userId !== userId) {
@@ -151,16 +143,7 @@ export async function PATCH(req: Request) {
       ...(agent && { agent }),
       ...(model !== undefined && { model }),
     },
-    include: {
-      sandbox: true,
-      messages: {
-        orderBy: { createdAt: "asc" },
-        take: 100, // Limit messages to prevent OOM on large conversations
-      },
-      _count: {
-        select: { messages: true }, // Include total count for pagination
-      },
-    },
+    include: INCLUDE_BRANCH_WITH_MESSAGES,
   })
 
   return Response.json({ branch: updatedBranch })

@@ -12,6 +12,7 @@ import {
   unauthorized,
 } from "@/lib/api-helpers"
 import { PATHS } from "@/lib/constants"
+import { INCLUDE_EXECUTION_WITH_CONTEXT } from "@/lib/prisma-includes"
 
 export async function POST(req: Request) {
   // 1. Authenticate
@@ -28,26 +29,7 @@ export async function POST(req: Request) {
   // 2. Find the execution record with user credentials for env
   const execution = await prisma.agentExecution.findFirst({
     where: executionId ? { executionId } : { messageId },
-    include: {
-      message: {
-        include: {
-          branch: {
-            include: {
-              sandbox: {
-                include: {
-                  user: {
-                    include: {
-                      credentials: true,
-                    },
-                  },
-                },
-              },
-              repo: true,
-            },
-          },
-        },
-      },
-    },
+    include: INCLUDE_EXECUTION_WITH_CONTEXT,
   })
 
   if (!execution) {

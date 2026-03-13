@@ -6,6 +6,11 @@ import {
   notFound,
   internalError,
 } from "@/lib/api-helpers"
+import { PAGINATION } from "@/lib/constants"
+import {
+  INCLUDE_REPO_FOR_LIST,
+  INCLUDE_REPO_WITH_BRANCHES,
+} from "@/lib/prisma-includes"
 
 export async function GET() {
   const auth = await requireAuth()
@@ -14,25 +19,9 @@ export async function GET() {
   try {
     const repos = await prisma.repo.findMany({
       where: { userId: auth.userId },
-      include: {
-        branches: {
-          include: {
-            sandbox: true,
-            // Don't load messages in list view - load them on-demand when branch is selected
-            messages: false,
-            _count: {
-              select: { messages: true }, // Include total count for UI
-            },
-          },
-          orderBy: { updatedAt: "desc" },
-          take: 10, // Limit branches per repo in list view
-        },
-        _count: {
-          select: { branches: true }, // Total branch count for pagination
-        },
-      },
+      include: INCLUDE_REPO_FOR_LIST,
       orderBy: { createdAt: "desc" },
-      take: 50, // Limit total repos
+      take: PAGINATION.REPOS_LIST,
     })
 
     return Response.json({ repos })
@@ -76,9 +65,7 @@ export async function POST(req: Request) {
         avatar,
         defaultBranch,
       },
-      include: {
-        branches: true,
-      },
+      include: INCLUDE_REPO_WITH_BRANCHES,
     })
 
     return Response.json({ repo })
