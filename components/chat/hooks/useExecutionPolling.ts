@@ -222,14 +222,21 @@ export function useExecutionPolling({
             streamingMessageIdRef.current = null
           }
 
-          if (data.status === EXECUTION_STATUS.ERROR && data.error) {
+          if (data.status === EXECUTION_STATUS.ERROR) {
             const targetBranchId = pollingBranchIdRef.current
             if (targetBranchId) {
-              onUpdateMessage(targetBranchId, messageId, {
-                content: data.content
-                  ? `${data.content}\n\nError: ${data.error}`
-                  : `Error: ${data.error}`,
-              })
+              let content = data.content ?? ""
+              if (data.agentCrashed) {
+                const { message, output } = data.agentCrashed
+                const crashMsg = message ?? "Process exited without completing"
+                content = content ? `${content}\n\n[Agent crashed: ${crashMsg}]` : `[Agent crashed: ${crashMsg}]`
+                if (output) content += `\n\nOutput:\n${output}`
+              } else if (data.error) {
+                content = content ? `${content}\n\nError: ${data.error}` : `Error: ${data.error}`
+              }
+              if (content !== (data.content ?? "")) {
+                onUpdateMessage(targetBranchId, messageId, { content })
+              }
             }
           }
 

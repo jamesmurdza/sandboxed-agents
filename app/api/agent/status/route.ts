@@ -47,6 +47,10 @@ export async function POST(req: Request) {
     contentBlocks:
       snapshot.contentBlocks ?? execution.message.contentBlocks ?? [],
     error: undefined,
+    agentCrashed:
+      snapshot.agentCrashed && typeof snapshot.agentCrashed === "object"
+        ? (snapshot.agentCrashed as { message?: string; output?: string })
+        : undefined,
   })
 }
 

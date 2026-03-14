@@ -46,11 +46,18 @@ export async function startAgentPoller(options: StartAgentPollerOptions): Promis
           if (execution) {
             const updates: any[] = []
 
-            // When the agent stopped with an error, show a message in the chat.
-            const content =
-              result.status === "error" && result.error
-                ? `${result.content || ""}\n\n[Agent stopped: ${result.error}]`
-                : (result.content || "")
+            // When the agent stopped with an error or agent_crashed, show a message in the chat.
+            let content = result.content || ""
+            if (result.status === "error" && result.agentCrashed) {
+              const { message, output } = result.agentCrashed
+              const crashMsg = message ?? "Process exited without completing"
+              content = content
+                ? `${content}\n\n[Agent crashed: ${crashMsg}]`
+                : `[Agent crashed: ${crashMsg}]`
+              if (output) content += `\n\nOutput:\n${output}`
+            } else if (result.status === "error" && result.error) {
+              content = content ? `${content}\n\n[Agent stopped: ${result.error}]` : `[Agent stopped: ${result.error}]`
+            }
 
             updates.push(
               prisma.message.update({
@@ -69,14 +76,17 @@ export async function startAgentPoller(options: StartAgentPollerOptions): Promis
               }),
             )
 
-            // Update execution status, completion time, and clear streaming snapshot.
+            // Update execution status, completion time, and clear streaming snapshot (or store agentCrashed for status API).
             updates.push(
               prisma.agentExecution.update({
                 where: { id: execution.id },
                 data: {
                   status: result.status,
                   completedAt: new Date(),
-                  latestSnapshot: Prisma.DbNull,
+                  latestSnapshot:
+                    result.agentCrashed != null
+                      ? (result.agentCrashed as unknown as Prisma.InputJsonValue)
+                      : Prisma.DbNull,
                 },
               }),
             )

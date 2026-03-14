@@ -64,12 +64,18 @@ export type ContentBlock = {
   toolCalls: Array<{ tool: string; summary: string }>
 }
 
+export interface AgentCrashedPayload {
+  message?: string
+  output?: string
+}
+
 export interface BackgroundPollResult {
   status: "running" | "completed" | "error"
   content: string
   toolCalls: Array<{ tool: string; summary: string }>
   contentBlocks: ContentBlock[]
   error?: string
+  agentCrashed?: AgentCrashedPayload
   sessionId?: string
 }
 
@@ -454,6 +460,26 @@ export async function pollBackgroundAgent(
     // Persist session ID if received
     if (sessionId) {
       await persistSessionId(sandbox, sessionId)
+    }
+
+    // agent_crashed = process exited without completing (crash/kill); has message?, output?
+    const crashEvent = allEvents.find(
+      (e): e is Event & { type: "agent_crashed"; message?: string; output?: string } =>
+        e.type === "agent_crashed"
+    )
+    if (crashEvent) {
+      return {
+        status: "error",
+        content,
+        toolCalls,
+        contentBlocks,
+        error: crashEvent.message ?? "Process exited without completing",
+        agentCrashed: {
+          message: crashEvent.message,
+          output: crashEvent.output,
+        },
+        sessionId: sessionId || undefined,
+      }
     }
 
     // Completed = process not running or we saw an event with type === "end" (SDK turns step_finish/reason=stop into end)
