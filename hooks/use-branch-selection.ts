@@ -26,6 +26,11 @@ export function useBranchSelection({ repos, loaded }: UseBranchSelectionOptions)
         ? currentRepo.branches.find((b) => b.id === activeBranchId)
         : null
     if (currentRepo && currentBranch) return
+    // Valid repo selected but no branch (e.g. just added repo) — only fix branch, don't change repo
+    if (currentRepo) {
+      setActiveBranchId(currentRepo.branches[0]?.id ?? null)
+      return
+    }
 
     setActiveRepoId(repos[0].id)
     if (repos[0].branches.length > 0) {

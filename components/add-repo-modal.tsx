@@ -22,7 +22,7 @@ interface AddRepoModalProps {
   onClose: () => void
   githubUser: string | null
   existingRepos: Repo[]
-  onAddRepo: (repo: Repo) => void
+  onAddRepo: (repo: Repo) => void | Promise<void>
   onSelectExistingRepo: (repoId: string) => void
 }
 
@@ -96,8 +96,12 @@ export function AddRepoModal({ open, onClose, githubUser, existingRepos, onAddRe
       defaultBranch: info.defaultBranch,
       branches: [],
     }
-    onAddRepo(repo)
-    onClose()
+    try {
+      await onAddRepo(repo)
+      onClose()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to add repository")
+    }
   }
 
   async function handleAddByUrl() {
@@ -159,7 +163,7 @@ export function AddRepoModal({ open, onClose, githubUser, existingRepos, onAddRe
     }
   }
 
-  function handleSelectRepo(repo: GitHubRepo) {
+  async function handleSelectRepo(repo: GitHubRepo) {
     if (githubUser && repo.owner !== githubUser) {
       setForkPrompt({
         owner: repo.owner,
@@ -169,7 +173,7 @@ export function AddRepoModal({ open, onClose, githubUser, existingRepos, onAddRe
       })
       return
     }
-    addRepoByInfo(repo)
+    await addRepoByInfo(repo)
   }
 
   async function handleCreateRepo() {

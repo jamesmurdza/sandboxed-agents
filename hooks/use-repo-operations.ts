@@ -1,6 +1,7 @@
 import { useCallback } from "react"
 import type { Branch } from "@/lib/types"
 import type { TransformedRepo } from "@/lib/db-types"
+import { transformRepo } from "@/lib/db-types"
 import {
   removeRepo,
   reorderRepos,
@@ -31,12 +32,28 @@ export function useRepoOperations({
   setActiveBranchId,
   refreshQuota,
 }: UseRepoOperationsOptions) {
-  // Add a new repo
-  const handleAddRepo = useCallback((repo: TransformedRepo) => {
-    setRepos((prev) => [...prev, repo])
-    selectRepo(repo.id)
-    setActiveBranchId(null)
-  }, [setRepos, selectRepo, setActiveBranchId])
+  // Add a new repo (persists to DB, then updates state and selection)
+  const handleAddRepo = useCallback(
+    async (repo: TransformedRepo) => {
+      const res = await fetch("/api/repos", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: repo.name,
+          owner: repo.owner,
+          avatar: repo.avatar || null,
+          defaultBranch: repo.defaultBranch,
+        }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || "Failed to add repository")
+      const transformed = transformRepo(data.repo)
+      setRepos((prev) => [...prev, transformed])
+      selectRepo(transformed.id)
+      setActiveBranchId(null)
+    },
+    [setRepos, selectRepo, setActiveBranchId]
+  )
 
   // Remove a repo and its sandboxes
   const handleRemoveRepo = useCallback((repoId: string) => {
