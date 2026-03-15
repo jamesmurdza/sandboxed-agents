@@ -479,12 +479,13 @@ export async function pollBackgroundAgent(
       }
     }
 
-    // Completed = process not running or we saw an event with type === "end" (SDK turns step_finish/reason=stop into end)
+    // Prefer explicit "end" event for completion; the SDK can briefly report isRunning false during reattach.
+    // When isRunning is false and there is no end event, treat as stopped so we don't poll forever.
     const endEvent = allEvents.find((e): e is EndEvent => e.type === "end") as
       | (EndEvent & { error?: string })
       | undefined
     const hasEndEvent = !!endEvent
-    const isCompleted = !isRunning || hasEndEvent
+    const isCompleted = hasEndEvent
 
     if (endEvent?.error) {
       return {
@@ -493,6 +494,17 @@ export async function pollBackgroundAgent(
         toolCalls,
         contentBlocks,
         error: endEvent.error,
+        sessionId: sessionId || undefined,
+      }
+    }
+
+    if (!isRunning && !hasEndEvent) {
+      return {
+        status: "error",
+        content,
+        toolCalls,
+        contentBlocks,
+        error: "Agent stopped without completing (process ended without end event)",
         sessionId: sessionId || undefined,
       }
     }
