@@ -132,11 +132,10 @@ export async function POST(req: Request) {
       { lastActiveAt: new Date() }
     )
 
-    // 8. Return immediately — frontend can start polling by messageId
-    const response = Response.json({ success: true, messageId })
-
-    // 9. Fire-and-forget: launch the agent process (the slow part)
-    bgSession.start(prompt).catch(async (error) => {
+    // 8. Start the turn and write meta before returning (so client polling sees runId/outputFile)
+    try {
+      await bgSession.start(prompt)
+    } catch (error) {
       console.error("[agent/execute] bgSession.start failed", { messageId }, error)
       try {
         const errMsg = error instanceof Error ? error.message : "Unknown error"
@@ -154,7 +153,8 @@ export async function POST(req: Request) {
         // Ignore
       }
       await resetSandboxStatus(sandboxRecord.id, sandboxRecord.branch?.id)
-    })
+      return internalError(error)
+    }
 
     try {
       await sandbox.refreshActivity()
@@ -162,7 +162,7 @@ export async function POST(req: Request) {
       // Non-critical
     }
 
-    return response
+    return Response.json({ success: true, messageId, executionId: agentExecution.id })
   } catch (error: unknown) {
     // Sync steps failed (sandbox not ready, session creation failed)
     await resetSandboxStatus(sandboxRecord.id, sandboxRecord.branch?.id)
